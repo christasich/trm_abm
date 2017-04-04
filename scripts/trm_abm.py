@@ -11,10 +11,51 @@ Created on Wed Mar 22 15:48:23 2017
 import numpy as np
 import pandas as pd
 import timeit
-import matplotlib.pyplot as plt
-import seaborn as sns
+import trm
 
 start_time = timeit.default_timer()
+
 #==============================================================================
-# DELTA ZETA FUNCTION
+# DEFINE SPACE
+#==============================================================================
+
+X = 100
+Y = 100
+grid = np.zeros((X,Y),dtype=float)
+
+#==============================================================================
+# LOAD TIDES
+#==============================================================================
+
+file = '../data/p32_tides.dat'
+parser = lambda x: pd.datetime.strptime(x, '%d-%b-%Y %H:%M:%S')
+start = pd.datetime(2015,5,15,1)
+end = pd.datetime(2016,5,14,1)
+
+tides = trm.load_tides(file,parser,start,end)
+
+#==============================================================================
+# TIDAL RIVER MANAGEMENT
+#==============================================================================
+
+gs = 0.03
+ws = ((gs/1000)**2*1650*9.8)/0.018
+rho = 700
+SSC = 0.4
+dP = 0
+dO = 0
+z0 = 0
+z = trm.delta_z(tides.pressure,tides.index,ws,rho,SSC,dP,dO,z0)
+
+#==============================================================================
+# UTILITY FUNCTIONS
+#==============================================================================
+
+# Expected Utility
+def eu(w,t,p,r):
+    u = (w + t * p) * (1 - r)**t
+    return u
+
+#==============================================================================
+# UTILITY FUNCTIONS
 #==============================================================================
