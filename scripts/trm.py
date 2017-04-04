@@ -23,7 +23,10 @@ def load_tides(file,parser,start,end):
 
 # Calculate chane in elevation over a time period
 def delta_z(heads,time,ws,rho,SSC,dP,dO,z0):
-    C0 = C = dz = dh = np.zeros(len(heads))
+    C0 = np.zeros(len(heads))
+    C = np.zeros(len(heads))
+    dz = np.zeros(len(heads))
+    dh = np.zeros(len(heads))
     z = np.zeros(len(heads)+1)
     z[0:2] = z0
     dt = float((time[1]-time[0]).seconds)
@@ -42,5 +45,5 @@ def delta_z(heads,time,ws,rho,SSC,dP,dO,z0):
         dz[j] = (ws*C[j]/rho)*dt
         z[j+1] = z[j] + dz[j] + dO - dP
         j = j + 1
-    z = z[end]
+    z = z[-1]
     return (z)

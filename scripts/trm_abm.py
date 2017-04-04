@@ -10,18 +10,25 @@ Created on Wed Mar 22 15:48:23 2017
 
 import numpy as np
 import pandas as pd
-import timeit
 import trm
-
-start_time = timeit.default_timer()
+import random as rd
 
 #==============================================================================
-# DEFINE SPACE
+# DEFINE ENVIRONMENT
 #==============================================================================
 
-X = 100
-Y = 100
+X = 11
+Y = 11
 grid = np.zeros((X,Y),dtype=float)
+
+alpha = 0.5
+wx = 2 * np.pi / (X * 2 -2)
+wy = 2 * np.pi / (Y * 2 - 2)
+
+for i in range(X):
+    for j in range(Y):
+        grid[i,j] = alpha - alpha * np.sin(wx*i) * np.sin(wy*j) + rd.uniform(
+                0,0.01)
 
 #==============================================================================
 # LOAD TIDES
@@ -44,8 +51,14 @@ rho = 700
 SSC = 0.4
 dP = 0
 dO = 0
-z0 = 0
-z = trm.delta_z(tides.pressure,tides.index,ws,rho,SSC,dP,dO,z0)
+
+breach_X = 50
+breach_Y = 100
+
+for i in range(X):
+    for j in range(Y):
+        grid[i,j] = trm.delta_z(tides.pressure,tides.index,ws,rho,SSC,dP,dO,
+            grid[i,j])
 
 #==============================================================================
 # UTILITY FUNCTIONS
@@ -55,7 +68,3 @@ z = trm.delta_z(tides.pressure,tides.index,ws,rho,SSC,dP,dO,z0)
 def eu(w,t,p,r):
     u = (w + t * p) * (1 - r)**t
     return u
-
-#==============================================================================
-# UTILITY FUNCTIONS
-#==============================================================================
