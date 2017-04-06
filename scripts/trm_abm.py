@@ -28,10 +28,11 @@ tides = trm.load_tides(file,parser,start,end)
 # DEFINE ENVIRONMENT
 #==============================================================================
 
-X = 21
-Y = 21
+X = 11
+Y = 11
 EBH = 3
 grid = np.zeros((X,Y),dtype=float)
+polder = grid[1:X-1,1:Y-1]
 cell_area = 100 # in meters
 time = 50 # in years
 
@@ -40,6 +41,67 @@ grid[0,:] = EBH
 grid[:,0] = EBH
 grid[X-1,:] = EBH
 grid[:,Y-1] = EBH
+    
+maxrad = 3
+polderhh = np.zeros((X-1,Y-1),dtype=int)
+
+HH = 1
+HHx = np.zeros(100)
+HHy = np.zeros(100)
+HHr = np.zeros(100)
+for i in range(X-1):
+    for j in range(Y-1):
+        randSize = rd.randint(1,maxrad)
+        if polderhh[i,j] == 0:
+            HHx[HH] = i
+            HHy[HH] = j
+            HHr[HH] = randSize
+            polderhh[i,j] = HH
+            for r in range(randSize+1)[1:]:
+                try:
+                    if polderhh[i,j+r] == 0:
+                        polderhh[i,j+r] = HH
+                except:
+                    pass
+                try:
+                    if polderhh[i+r,j] == 0:
+                        polderhh[i+r,j] = HH
+                except:
+                    pass
+                try:
+                    if polderhh[i+r,j+r] == 0:
+                        polderhh[i+r,j+r] = HH
+                except:
+                    pass
+                try:
+                    if polderhh[i,j-r] == 0:
+                        polderhh[i,j-r] = HH
+                except:
+                    pass
+                try:
+                    if polderhh[i-r,j] == 0:
+                        polderhh[i-r,j] = HH
+                except:
+                    pass
+                try:
+                    if polderhh[i-r,j-r] == 0:
+                        polderhh[i-r,j-r] = HH
+                except:
+                    pass
+            HH = HH + 1
+                          
+
+HH = 1
+while polderhh.any() == 0:    
+    randX = rd.randint(0,X-1)
+    randY = rd.randint(0,Y-1)
+    randSize = rd.randint(1,maxrad)
+    if polderhh[X,Y] == 0:
+        
+        polderhh[X,Y] == HH
+        
+        
+    
 
 #alpha = 0.5
 #wx = 2 * np.pi / (X * 2 - 2)
@@ -65,6 +127,7 @@ z0 = 0
 breach_X = 10
 breach_Y = 20
 grid[breach_Y,breach_X] = 0
+    
 
 breach_dist = np.zeros((X,Y),dtype=float)
 breach_dist_X = np.zeros((X,Y),dtype=float)
