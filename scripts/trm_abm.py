@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import trm
 import random as rd
+import matplotlib.pyplot as plt
 
 #==============================================================================
 # LOAD TIDES
@@ -28,17 +29,12 @@ tides = trm.load_tides(file,parser,start,end)
 # DEFINE ENVIRONMENT
 #==============================================================================
 
-X = 51
-Y = 51
+X = 500
+Y = 300
+dx = 10
 
-EBH = 3
-grid = np.zeros((X,Y),dtype=float)
-grid[0,:] = EBH
-grid[:,0] = EBH
-grid[X-1,:] = EBH
-grid[:,Y-1] = EBH
-    
-intZ = grid[1:X-1,1:Y-1]
+grid = np.zeros((Y,X),dtype=float)
+
 #
 #alpha = 0.5
 #wx = 2 * np.pi / ((X-1) * 2 - 2)
@@ -53,7 +49,7 @@ intZ = grid[1:X-1,1:Y-1]
 # TIDAL RIVER MANAGEMENT
 #==============================================================================
 
-time = 50 # in years
+time = 2 # in years
 gs = 0.03
 ws = ((gs/1000)**2*1650*9.8)/0.018
 rho = 700
@@ -62,59 +58,54 @@ dP = 0
 dO = 0
 z0 = 0
 
-breachX = 25
-breachY = 50
-grid[breachY,breachX] = 0
+breachX = 0
+breachY = Y/2
     
-
-breach_dist = np.zeros((X,Y),dtype=float)
-breach_dist_X = np.zeros((X,Y),dtype=float)
-breach_dist_Y = np.zeros((X,Y),dtype=float)
-D = np.zeros((X,Y),dtype=float)
+breach_dist_X = np.zeros((Y,X),dtype=float)
+breach_dist_Y = np.zeros((Y,X),dtype=float)
+D = np.zeros((Y,X),dtype=float)
+DNorm = np.zeros((Y,X),dtype=float)
 
 count = 0
 for t in range(time):
-    grid[breachY,breachX] = trm.delta_z(tides.pressure,tides.index,ws,rho,SSC,dP,dO,
-            grid[breachY,breachX])
-    for i in range(Y)[1:-1]:
-        for j in range(X)[1:-1]:
+    A = (trm.delta_z(tides.pressure,tides.index,ws,rho,SSC,dP,dO,
+            grid[breachY,breachX])-grid[breachY,breachX])
+    for i in range(Y):
+        for j in range(X):
             if count == 0:
                 breach_dist_X[i,j] = abs(j - breachX)
                 breach_dist_Y[i,j] = abs(i - breachY)
-                breach_dist[i,j] = np.sqrt(breach_dist_X[i,j]**2 + breach_dist_Y[i,j]**2)
-                D[i,j] = breach_dist[i,j]/100 # in km
-                print D[breachY-1,breachX]
-            grid[i,j] = (((D[i,j])/(D[breachY-1,breachX])) ** -1.3609) * grid[breachY,breachX]
-    grid[breachY-2:breachY,breachX-1:breachX+2] = np.mean(grid)
-    grid[breachY,breachX] = np.min(grid)
+                D[i,j] = np.hypot(breach_dist_X[i,j],breach_dist_Y[i,j])*dx
+                DNorm[i,j] = D[i,j]/1000 + 1
+            grid[i,j] = grid[i,j] + (DNorm[i,j] ** -1.3609) * A/DNorm[i,j]
     count = count + 1
-        
+
 #==============================================================================
 # DEFINE HOUSEHOLDS
 #==============================================================================
-#minsize = 0
-#maxsize = 5
-#polderHH = np.zeros((X-1,Y-1),dtype=int)
-#
-#HH = 1
-#for i in range(X-1):
-#    for j in range(Y-1):
-#        randSize = rd.randint(minsize,maxsize)
-#        if polderHH[i,j] == 0:
-#            polderHH[i,j] = HH
-#            for ri in range(randSize+1):
-#                for rj in range(randSize+1):
-#                    try:
-#                        if polderHH[i+ri,j+rj] == 0:
-#                            polderHH[i+ri,j+rj] = HH
-#                    except:
-#                        pass
-#                    try:
-#                        if polderHH[abs(i-ri),abs(j-rj)] == 0:
-#                            polderHH[abs(i-ri),abs(j-rj)] = HH
-#                    except:
-#                        pass
-#            HH = HH + 1
+minsize = 100
+maxsize = 500
+polderHH = np.zeros((X,Y),dtype=int)
+
+HH = 1
+for i in range(X):
+    for j in range(Y):
+        randSize = rd.randint(minsize,maxsize)
+        if polderHH[i,j] == 0:
+            polderHH[i,j] = HH
+            for ri in range(randSize+1):
+                for rj in range(randSize+1):
+                    try:
+                        if polderHH[i+ri,j+rj] == 0:
+                            polderHH[i+ri,j+rj] = HH
+                    except:
+                        pass
+                    try:
+                        if polderHH[abs(i-ri),abs(j-rj)] == 0:
+                            polderHH[abs(i-ri),abs(j-rj)] = HH
+                    except:
+                        pass
+            HH = HH + 1
 #
 ##==============================================================================
 ## UTILITY FUNCTIONS
