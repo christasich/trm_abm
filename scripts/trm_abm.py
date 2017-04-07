@@ -29,9 +29,9 @@ tides = trm.load_tides(file,parser,start,end)
 # DEFINE ENVIRONMENT
 #==============================================================================
 
-X = 500
-Y = 300
-dx = 10
+X = 50
+Y = 30
+dx = 1
 
 grid = np.zeros((Y,X),dtype=float)
 
@@ -83,10 +83,30 @@ for t in range(time):
 #==============================================================================
 # DEFINE HOUSEHOLDS
 #==============================================================================
-minsize = 100
-maxsize = 500
-polderHH = np.zeros((X,Y),dtype=int)
+minsize = 1
+maxsize = 5
+polderHH = np.zeros((Y,X),dtype=int)
 
+HH = 1
+while np.min(polderHH) == 0:
+    xcor = rd.randint(0,X-1)
+    ycor = rd.randint(0,Y-1)
+    r = rd.randint(minsize,maxsize)
+    polderHH[ycor,xcor] = HH
+    for ri in range(r+1):
+        for rj in range(r+1):
+            try:
+                if polderHH[i+ri,j+rj] == 0:
+                    polderHH[i+ri,j+rj] = HH
+            except:
+                pass
+            try:
+                if polderHH[i-ri,j-rj] == 0:
+                    polderHH[i-ri,j-rj] = HH
+            except:
+                pass
+    HH = HH + 1
+            
 HH = 1
 for i in range(X):
     for j in range(Y):
@@ -106,7 +126,7 @@ for i in range(X):
                     except:
                         pass
             HH = HH + 1
-#
+
 ##==============================================================================
 ## UTILITY FUNCTIONS
 ##==============================================================================
