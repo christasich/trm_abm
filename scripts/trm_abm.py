@@ -50,7 +50,7 @@ polderZ = np.zeros((Y,X),dtype=float)
 # TIDAL RIVER MANAGEMENT
 #==============================================================================
 
-time = 2 # in years
+time = 5 # in years
 gs = 0.03
 ws = ((gs/1000)**2*1650*9.8)/0.018
 rho = 700
@@ -129,8 +129,12 @@ def patches(shape, N, maxiter=100):
     return out - N - 1
 
 N = 50
-HHs = dict.fromkeys(range(N))
 polderHH = patches((Y, X), N)
+HHs = dict.fromkeys(np.unique(polderHH))
+fn = ['mean z','wealth']
+HHown = dict.fromkeys(fn)
+HHs = [dict.fromkeys(fn) for HH in HHs]
+#[a for a in range(50) if a not in HHs]
 
 #==============================================================================
 # CALCULATE MEAN ELEVATION FOR HOUSEHOLDS
@@ -139,9 +143,9 @@ polderHH = patches((Y, X), N)
 for HH in HHs:
     y, x = np.where(polderHH == HH)
     z = np.zeros(len(x),dtype=float)
-    for i in x:
+    for i in range(len(x)):
         z[i] = polderZ[y[i],x[i]]
-    HHs[HH] = {'elevation':np.mean(z)}
+    HHs[HH] = {'mean z':np.mean(z)}
         
 
 #==============================================================================
