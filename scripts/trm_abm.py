@@ -30,21 +30,21 @@ tides = trm.load_tides(file,parser,start,end)
 # DEFINE ENVIRONMENT
 #==============================================================================
 
-X = 50
-Y = 30
+X = 500
+Y = 300
 dx = 1
 
 polderZ = np.zeros((Y,X),dtype=float)
 
-#
-#alpha = 0.5
-#wx = 2 * np.pi / ((X-1) * 2 - 2)
-#wy = 2 * np.pi / ((Y-1) * 2 - 2)
-#
-#for i in range(X-2):
-#    for j in range(Y-2):
-#        intZ[i,j] = alpha - alpha * np.sin(wx*i) * np.sin(wy*j) + rd.uniform(
-#                0,0.01)
+
+alpha = 0.5
+wx = 2 * np.pi / ((X) * 2 - 2)
+wy = 2 * np.pi / ((Y) * 2 - 2)
+
+for i in range(Y):
+    for j in range(X):
+        polderZ[i,j] = alpha - alpha * np.sin(wx*j) * np.sin(wy*i) + rd.uniform(
+                0,0.1)
         
 #==============================================================================
 # TIDAL RIVER MANAGEMENT
@@ -67,6 +67,13 @@ breachY_dist = np.zeros((Y,X),dtype=float)
 D = np.zeros((Y,X),dtype=float)
 DNorm = np.zeros((Y,X),dtype=float)
 
+maxWL = 1
+k = 5
+mid = 1.5
+
+WL = np.zeros((Y,X),dtype=float)
+FL = np.zeros((Y,X),dtype=float)
+
 count = 0
 for t in range(time):
     A = (trm.delta_z(tides.pressure,tides.index,ws,rho,SSC,dP,dO,
@@ -78,7 +85,7 @@ for t in range(time):
                 breachY_dist[i,j] = abs(i - breachY)
                 D[i,j] = np.hypot(breachX_dist[i,j],breachY_dist[i,j])*dx
                 DNorm[i,j] = D[i,j]/1000 + 1
-            polderZ[i,j] = polderZ[i,j] + (DNorm[i,j] ** -1.3609) * A/DNorm[i,j]
+    polderZ = polderZ + (DNorm ** -1.3609) * A/DNorm
     count = count + 1
 
 #==============================================================================
@@ -128,26 +135,40 @@ def patches(shape, N, maxiter=100):
             break
     return out - N - 1
 
-N = 50
+N = 100
 polderHH = patches((Y, X), N)
 NN = len(np.unique(polderHH))
-fn = ['meanZ','wealth','profit']
-HHs = pd.DataFrame(index='HH ' + np.unique(polderHH),columns = fn)
-wealth = np.random.randint(0,1000,NN)
-HHs.wealth = wealth
-HHs.profit = np.zeros(NN)
+fn = ['wealth','profit']
+HH = pd.DataFrame(index=np.unique(polderHH),columns = fn)
+
+HH.wealth = np.random.randint(0,10000,NN)
+HH.profit = np.zeros(NN)
 
 #==============================================================================
-# CALCULATE MEAN ELEVATION FOR HOUSEHOLDS
+# CALCULATE PATCH VARIABLES
 #==============================================================================
 
-for HH in HHs.index:
-    y, x = np.where(polderHH == HH)
-    z = np.zeros(len(x),dtype=float)
-    for i in range(len(x)):
-        z[i] = polderZ[y[i],x[i]]
-    HHs.iloc[HH].meanZ = np.mean(z)
-    #HHs.iloc[HH].wealth = HHs.iloc[HH].wealth + HHs.iloc[HH].profit
+WL = (1 - maxWL / (1 + np.e ** (-k*(polderZ-mid))))
+
+
+#==============================================================================
+# AGGREGATE BY HOUSEHOLD
+#==============================================================================
+
+
+
+
+
+#for hh in HH.index:
+#    y, x = np.where(polderHH == hh)
+#    z = np.zeros(len(x),dtype=float)
+#    for i in range(len(x)):
+#        z[i] = polderZ[y[i],x[i]]
+#    meanZ = np.mean(z)
+#    HH.set_value(hh,'meanZ',meanZ)
+#    HH.set_value(hh,'profit',maxWL / (1 + np.e ** (-k*(meanZ-mid))))
+#    
+#plt.hist(HH.profit)
         
 
 #==============================================================================
