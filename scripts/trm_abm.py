@@ -130,22 +130,24 @@ def patches(shape, N, maxiter=100):
 
 N = 50
 polderHH = patches((Y, X), N)
-HHs = dict.fromkeys(np.unique(polderHH))
-fn = ['mean z','wealth']
-HHown = dict.fromkeys(fn)
-HHs = [dict.fromkeys(fn) for HH in HHs]
-#[a for a in range(50) if a not in HHs]
+NN = len(np.unique(polderHH))
+fn = ['meanZ','wealth','profit']
+HHs = pd.DataFrame(index='HH ' + np.unique(polderHH),columns = fn)
+wealth = np.random.randint(0,1000,NN)
+HHs.wealth = wealth
+HHs.profit = np.zeros(NN)
 
 #==============================================================================
 # CALCULATE MEAN ELEVATION FOR HOUSEHOLDS
 #==============================================================================
 
-for HH in HHs:
+for HH in HHs.index:
     y, x = np.where(polderHH == HH)
     z = np.zeros(len(x),dtype=float)
     for i in range(len(x)):
         z[i] = polderZ[y[i],x[i]]
-    HHs[HH] = {'mean z':np.mean(z)}
+    HHs.iloc[HH].meanZ = np.mean(z)
+    #HHs.iloc[HH].wealth = HHs.iloc[HH].wealth + HHs.iloc[HH].profit
         
 
 #==============================================================================
