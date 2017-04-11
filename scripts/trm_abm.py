@@ -128,12 +128,25 @@ def patches(shape, N, maxiter=100):
             break
     return out - N - 1
 
-polderHH = patches((Y, X), 50)
+N = 50
+HHs = dict.fromkeys(range(N))
+polderHH = patches((Y, X), N)
 
+#==============================================================================
+# CALCULATE MEAN ELEVATION FOR HOUSEHOLDS
+#==============================================================================
 
-##==============================================================================
-## UTILITY FUNCTIONS
-##==============================================================================
+for HH in HHs:
+    y, x = np.where(polderHH == HH)
+    z = np.zeros(len(x),dtype=float)
+    for i in x:
+        z[i] = polderZ[y[i],x[i]]
+    HHs[HH] = {'elevation':np.mean(z)}
+        
+
+#==============================================================================
+# UTILITY FUNCTIONS
+#==============================================================================
 #
 ## Expected Utility
 #def eu(w,t,p,r):
