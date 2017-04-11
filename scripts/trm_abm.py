@@ -13,6 +13,7 @@ import pandas as pd
 import trm
 import random as rd
 import matplotlib.pyplot as plt
+from scipy import ndimage
 
 #==============================================================================
 # LOAD TIDES
@@ -33,7 +34,7 @@ X = 50
 Y = 30
 dx = 1
 
-grid = np.zeros((Y,X),dtype=float)
+polderZ = np.zeros((Y,X),dtype=float)
 
 #
 #alpha = 0.5
@@ -61,71 +62,74 @@ z0 = 0
 breachX = 0
 breachY = Y/2
     
-breach_dist_X = np.zeros((Y,X),dtype=float)
-breach_dist_Y = np.zeros((Y,X),dtype=float)
+breachX_dist = np.zeros((Y,X),dtype=float)
+breachY_dist = np.zeros((Y,X),dtype=float)
 D = np.zeros((Y,X),dtype=float)
 DNorm = np.zeros((Y,X),dtype=float)
 
 count = 0
 for t in range(time):
     A = (trm.delta_z(tides.pressure,tides.index,ws,rho,SSC,dP,dO,
-            grid[breachY,breachX])-grid[breachY,breachX])
+            polderZ[breachY,breachX])-polderZ[breachY,breachX])
     for i in range(Y):
         for j in range(X):
             if count == 0:
-                breach_dist_X[i,j] = abs(j - breachX)
-                breach_dist_Y[i,j] = abs(i - breachY)
-                D[i,j] = np.hypot(breach_dist_X[i,j],breach_dist_Y[i,j])*dx
+                breachX_dist[i,j] = abs(j - breachX)
+                breachY_dist[i,j] = abs(i - breachY)
+                D[i,j] = np.hypot(breachX_dist[i,j],breachY_dist[i,j])*dx
                 DNorm[i,j] = D[i,j]/1000 + 1
-            grid[i,j] = grid[i,j] + (DNorm[i,j] ** -1.3609) * A/DNorm[i,j]
+            polderZ[i,j] = polderZ[i,j] + (DNorm[i,j] ** -1.3609) * A/DNorm[i,j]
     count = count + 1
 
 #==============================================================================
 # DEFINE HOUSEHOLDS
 #==============================================================================
-minsize = 1
-maxsize = 5
-polderHH = np.zeros((Y,X),dtype=int)
 
-HH = 1
-while np.min(polderHH) == 0:
-    xcor = rd.randint(0,X-1)
-    ycor = rd.randint(0,Y-1)
-    r = rd.randint(minsize,maxsize)
-    polderHH[ycor,xcor] = HH
-    for ri in range(r+1):
-        for rj in range(r+1):
-            try:
-                if polderHH[i+ri,j+rj] == 0:
-                    polderHH[i+ri,j+rj] = HH
-            except:
-                pass
-            try:
-                if polderHH[i-ri,j-rj] == 0:
-                    polderHH[i-ri,j-rj] = HH
-            except:
-                pass
-    HH = HH + 1
-            
-HH = 1
-for i in range(X):
-    for j in range(Y):
-        randSize = rd.randint(minsize,maxsize)
-        if polderHH[i,j] == 0:
-            polderHH[i,j] = HH
-            for ri in range(randSize+1):
-                for rj in range(randSize+1):
-                    try:
-                        if polderHH[i+ri,j+rj] == 0:
-                            polderHH[i+ri,j+rj] = HH
-                    except:
-                        pass
-                    try:
-                        if polderHH[abs(i-ri),abs(j-rj)] == 0:
-                            polderHH[abs(i-ri),abs(j-rj)] = HH
-                    except:
-                        pass
-            HH = HH + 1
+# not sure this makes a big difference
+growth_kernels = """
+010 000 010 111
+111 111 010 111
+010 000 010 111
+"""
+
+def patches(shape, N, maxiter=100):
+    # seed patches leave a gap of N between 0 and the first patch
+    out = np.zeros(shape, int)
+    out.ravel()[np.random.choice(out.size, N)] = np.arange(N+1, 2*N+1)
+    # unpack and transform kernels to values
+    # 0   -- centre, impossible to unseat anything other than zero
+    # -N  -- the former 1s, can compete for empty (zero) squares
+    # -2N -- the former 0s, leave the square alone
+    kernels = np.array([[int(s, 2) for s in l.strip().split()]
+                        for l in growth_kernels.split('\n')
+                        if l.strip()], np.uint8)
+    kernels = np.unpackbits(kernels).reshape(kernels.shape + (-1,))
+    ke = kernels.shape[0]
+    assert np.all(kernels[..., :-ke] == 0)
+    kernels = (kernels[..., -ke:].astype(int).swapaxes(0, 1) - 1) * N - N
+    kernels[..., ke//2, ke//2] = 0
+    # shuffle labels after each iteration, so larger numbers do not get
+    #  a systematic advantage
+    shuffle = np.arange(4*N+1)
+    # also map negative labels to zero
+    shuffle[2*N+1:] = 0
+    for j in range(maxiter):
+        # pick one of the kernels
+        k = np.random.randint(0, kernels.shape[0])
+        # grow patches
+        out = ndimage.grey_dilation(
+            out, kernels.shape[1:], structure=kernels[k], mode='constant')
+        # shuffle
+        shuffle[N+1:2*N+1] = np.random.permutation(shuffle[N+1:2*N+1])
+        # newly acquired territory will be labelled 1--N lift that to N+1--2N
+        shuffle[1:N+1] = shuffle[N+1:2*N+1]
+        out = shuffle[out]
+        if np.all(out):
+            break
+    return out - N - 1
+
+polderHH = patches((Y, X), 50)
+
 
 ##==============================================================================
 ## UTILITY FUNCTIONS
