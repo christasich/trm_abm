@@ -69,7 +69,7 @@ def build_polder(x,y,alpha):
 # BUILD HOUSEHOLDS
 #==============================================================================
 
-def build_households(shape, N,maxiter=100):
+def build_households(shape,N,maxiter=100):
     growth_kernels = """
     555555555 543212345
     444444444 543212345

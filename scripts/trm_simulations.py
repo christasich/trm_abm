@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import trm_abm as abm
 import matplotlib.pyplot as plt
+from scipy.signal import argrelextrema
 
 #==============================================================================
 # SELECT TIMEFRAME AND LOAD TIDES
@@ -39,7 +40,7 @@ polderZ,xx,yy = abm.build_polder(X,Y,alpha)
 # GENERATE HOUSEHOLD PARCELS
 #==============================================================================
 
-N = 100 # number of households
+N = 50 # number of households
 
 polderHH = abm.build_households((Y, X), N)
 
@@ -55,7 +56,7 @@ dfHH = pd.DataFrame(index=np.arange(N),data={'wealth':wealth,
 # TIDAL RIVER MANAGEMENT
 #==============================================================================
 
-time = 5 # in years
+time = 20 # in years
 gs = 0.03 # grain size in m
 ws = ((gs/1000)**2*1650*9.8)/0.018 # settling velocity calculated using Stoke's Law
 rho = 700 # dry bulk density in kg/m^2
@@ -83,13 +84,29 @@ for t in range(time):
 # CALCULATE PATCH VARIABLES
 #==============================================================================
 
+# Calculate Mean High Water
+pressure = tides.as_matrix()
+HW = pressure[argrelextrema(pressure, np.greater)[0]]
+MHW = np.mean(HW)
+
 # Water logged parameter (logit function)
 
-maxWL = 1
 k = 5
 mid = 1.5
 
-WL = (1 - maxWL / (1 + np.e ** (-k*(polderZ-mid))))
+WL = (1 - MHW / (1 + np.e ** (-k*(polderZ-mid))))
+
+#==============================================================================
+# DIAGNOSTIC PLOTS
+#==============================================================================
+
+# water logging
+plt.imshow(WL,cmap='RdYlBu')
+
+# Elevations with household parcels
+plt.figure()
+plt.imshow(polderZ,cmap='gist_earth')
+plt.contour(polderHH,colors='black',linewidths=0.5)
 
 #==============================================================================
 # AGGREGATE BY HOUSEHOLD
