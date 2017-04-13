@@ -37,7 +37,7 @@ alpha = 0.5 # maximum elevation at edges of polder for initial elevation
 polderZ,xx,yy = abm.build_polder(X,Y,alpha)
 
 #==============================================================================
-# GENERATE HOUSEHOLD PARCELS
+# GENERATE HOUSEHOLD PARCELS AND INITIALIZE PARAMETERS
 #==============================================================================
 
 N = 50 # number of households
@@ -47,10 +47,16 @@ polderHH = abm.build_households((Y, X), N)
 # Initialize dataframe of household paramters
 max_wealth = 10000 # initial max wealth in Taka
 
-wealth = np.random.randint(0,max_wealth,N)
+mean_z = np.zeros(N)
+wealth = np.zeros(N)
+
+# Calculate mean elevation and initial wealth of household parcels
+for hh in range(N):
+    mean_z[hh] = np.mean(polderZ[polderHH == hh])
+    wealth[hh] = mean_z[hh]/alpha*max_wealth
+
 profit = np.zeros(N)
-dfHH = pd.DataFrame(index=np.arange(N),data={'wealth':wealth,
-                    'profit':profit})
+HHdf = pd.DataFrame(data={'elevation':mean_z,'wealth':wealth,'profit':profit})
 
 #==============================================================================
 # TIDAL RIVER MANAGEMENT
@@ -78,7 +84,7 @@ for t in range(time):
     Z = abm.delta_z(tides,tides.index,ws,rho,SSC,dP,dO,
                     polderZ[breachY,breachX])
     A = Z - polderZ[breachY,breachX]
-    polderZ = polderZ + (D ** -1.3609) * A/D
+    polderZ = polderZ + (D ** -1.3) * A/D
 
 #==============================================================================
 # CALCULATE PATCH VARIABLES
