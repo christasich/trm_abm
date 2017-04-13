@@ -46,6 +46,7 @@ polderHH = abm.build_households((Y, X), N)
 
 # Initialize dataframe of household paramters
 max_wealth = 10000 # initial max wealth in Taka
+max_profit = 100 # max profit per 1 m^2 land in Taka
 
 mean_z = np.zeros(N)
 wealth = np.zeros(N)
