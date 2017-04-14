@@ -25,6 +25,11 @@ end = pd.datetime(2016,5,14,1)
 
 tides = abm.load_tides(file,parser,start,end)
 
+# Calculate Mean High Water
+pressure = tides.as_matrix()
+HW = pressure[argrelextrema(pressure, np.greater)[0]]
+MHW = np.mean(HW)
+
 #==============================================================================
 # GENERATE POLDER ENVIRONMENT
 #==============================================================================
@@ -91,17 +96,12 @@ for t in range(time):
 # CALCULATE PATCH VARIABLES
 #==============================================================================
 
-# Calculate Mean High Water
-pressure = tides.as_matrix()
-HW = pressure[argrelextrema(pressure, np.greater)[0]]
-MHW = np.mean(HW)
-
 # Water logged parameter (logit function)
 
 k = 5
-mid = 1.5
+mid = MHW-.5
 
-WL = (1 - MHW / (1 + np.e ** (-k*(polderZ-mid))))
+WL = 1/(1+np.e**(-k*(polderZ-mid)))
 
 #==============================================================================
 # DIAGNOSTIC PLOTS
