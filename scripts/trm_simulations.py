@@ -68,7 +68,7 @@ HHdf = pd.DataFrame(data={'elevation':mean_z,'wealth':wealth,'profit':profit})
 # TIDAL RIVER MANAGEMENT
 #==============================================================================
 
-time = 20 # in years
+time = 1 # in years
 gs = 0.03 # grain size in m
 ws = ((gs/1000)**2*1650*9.8)/0.018 # settling velocity calculated using Stoke's Law
 rho = 700 # dry bulk density in kg/m^2
@@ -91,17 +91,7 @@ for t in range(time):
                     polderZ[breachY,breachX])
     A = Z - polderZ[breachY,breachX]
     polderZ = polderZ + (D ** -1.3) * A/D
-
-#==============================================================================
-# CALCULATE PATCH VARIABLES
-#==============================================================================
-
-# Water logged parameter (logit function)
-
-k = 5
-mid = MHW-.5
-
-WL = 1/(1+np.e**(-k*(polderZ-mid)))
+    WL = abm.water_log(polderZ,5,MHW/2)
 
 #==============================================================================
 # DIAGNOSTIC PLOTS
