@@ -116,13 +116,13 @@ def build_households(shape,N,maxiter=100):
             break
     return out % N
 #==============================================================================
-# WATER LOGGING PARAMETER
+# CALCULATE WATER LOGGING PARAMETER
 #==============================================================================
 
-# Water logged parameter (logit function)
-def water_log(z,k,mid):
-    WL = 1/(1+np.e**(-k*(z-mid)))
-    return WL
+# Logit Function
+def logit(z,k,mid):
+    x = 1/(1+np.e**(-k*(z-mid)))
+    return x
 
 #==============================================================================
 # UTILITY FUNCTIONS
