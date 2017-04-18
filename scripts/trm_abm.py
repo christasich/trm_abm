@@ -49,7 +49,6 @@ def delta_z(heads,time,ws,rho,SSC,dP,dO,z0):
         dz[j] = (ws*C[j]/rho)*dt
         z[j+1] = z[j] + dz[j] + dO - dP
         j = j + 1
-    z = z[-1]
     return (z)
 
 #==============================================================================
