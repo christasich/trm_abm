@@ -49,6 +49,7 @@ def delta_z(heads,time,ws,rho,SSC,dP,dO,z0):
         dz[j] = (ws*C[j]/rho)*dt
         z[j+1] = z[j] + dz[j] + dO - dP
         j = j + 1
+    z = z[-1]
     return (z)
 
 #==============================================================================
@@ -122,6 +123,14 @@ def build_households(shape,N,maxiter=100):
 def logit(z,k,mid):
     x = 1/(1+np.e**(-k*(z-mid)))
     return x
+
+#==============================================================================
+# UPDATE PROFIT
+#==============================================================================
+
+def update_profit(Z,n,max_profit):
+    profit = np.zeros_like(Z)
+    profit[Z >= n] = max_profit
 
 #==============================================================================
 # UTILITY FUNCTIONS
