@@ -49,7 +49,7 @@ Z,xx,yy = abm.build_polder(X,Y,alpha)
 # GENERATE HOUSEHOLD PARCELS AND INITIALIZE PARAMETERS
 #==============================================================================
 
-N = 50 # number of households
+N = 100 # number of households
 
 polderHH = abm.build_households((Y, X), N)
 
@@ -80,7 +80,6 @@ breachY_dist = abs(yy - breachY) # y distance to breach
 breach_dist = np.hypot(breachX_dist,breachY_dist)*dx # distance to breach in m
 D = breach_dist / 1000 + 1 # distance to breach in km + 1 km (for scaling purposes)
 
-breach = 0
 time_horizon = 5
 
 # Calculate mean elevation and initial wealth of household parcels
@@ -90,6 +89,11 @@ for hh in range(N):
 
 best_z = 3
 vote = []
+hhvote_all = []
+Z_mean = [np.mean(Z)]
+wealth_mean = [np.mean(df.wealth)]
+all_wealth = [df.wealth]
+dr = 0.03
 # Run simulation for t time
 for t in range(time):
     # initialize
@@ -99,6 +103,8 @@ for t in range(time):
     z = np.zeros(time_horizon)
     
     Z_all = [Z]
+    
+    hhvote = np.zeros_like(Z)
     
     A = np.zeros(time_horizon)
     
@@ -117,10 +123,19 @@ for t in range(time):
         profit.append(abm.update_profit(Z_all[tt],MW,best_z,max_profit))
         
     for hh in range(N):
-        profit_base = np.mean([profit[0][polderHH==hh]])
-        profit_trm = np.mean([x[polderHH==hh] for x in profit[1:]])
-        risk_base = np.mean([wl_risk[0][polderHH==hh]])
-        risk_trm = np.mean([x[polderHH==hh] for x in flood_risk[1:]])
+        p = []
+        p_trm = []
+        r = []
+        r_trm = []
+        for tt in range(time_horizon):
+            p.append(np.sum([profit[0][polderHH==hh]])*(1-dr)**tt)
+            p_trm.append(np.sum(profit[tt+1][polderHH==hh])*(1-dr)**tt)
+            r.append(np.mean([wl_risk[0][polderHH==hh]])*(1-dr)**tt)
+            r_trm.append(np.mean([flood_risk[tt+1][polderHH==hh]])*(1-dr)**tt)
+        profit_base = np.sum(p)
+        profit_trm = np.sum(p_trm)
+        risk_base = np.mean(r)
+        risk_trm = np.mean(r_trm)
         
         eu_base = (df.loc[hh].wealth + profit_base) * (1 - risk_base)
         eu_trm = (df.loc[hh].wealth  + profit_trm) * (1 - risk_trm)
@@ -134,53 +149,63 @@ for t in range(time):
         elif eu_base < eu_trm:
             df.set_value(hh,'vote',1)
             df.set_value(hh,'wealth',df.loc[hh].wealth + profit_trm)
+            hhvote[polderHH == hh] = 1
+    hhvote_all.append(hhvote)
     vote.append(df.vote.mean())
     if vote[t] > 0.5:
         Z = Z_all[1]
-#        
-#        
-#        
-#    for hh in range(N):
-#        eu_base = abm.eu(df.loc[hh].wealth,time_horizon,
-#                         np.mean(profit[polderHH==hh]),
-#                               np.mean(wl_risk[polderHH==hh]))
-#        eu_trm = abm.eu(df.loc[hh].wealth,time_horizon,
-#                         np.mean(profit_trm[polderHH==hh]),
-#                               np.mean(flood_risk[polderHH==hh]))
-#        df.set_value(hh,'utility_base',eu_base)
-#        df.set_value(hh,'utility_trm',eu_trm)
-#        if eu_base >= eu_trm:
-#            df.set_value(hh,'vote',0)
-#        elif eu_base < eu_trm:
-#            df.set_value(hh,'vote',1)
-#        df.set_value(hh,'elevation',np.mean(Z1[polderHH == hh]))
-#    breach_vote = np.mean(df.vote)
-#    
-#    Z_breach = z1
-#    
+    Z_mean.append(np.mean(Z))
+    wealth_mean.append(np.mean(df.wealth))
+    all_wealth.append(df.wealth)
+
 #==============================================================================
 # DIAGNOSTIC PLOTS
 #==============================================================================
 
-# water logging
-#plt.imshow(WL,cmap='RdYlBu')
-#
+### water logging
+##plt.imshow(water,cmap='RdYlBu')
+##
+#ttt = 0
 ## Elevations with household parcels
 #plt.figure()
-#plt.imshow(polderZ,cmap='gist_earth')
+#plt.imshow(Z_all[0],cmap='gist_earth')
 #plt.contour(polderHH,colors='black',linewidths=0.5)
-
-#==============================================================================
-# AGGREGATE BY HOUSEHOLD
-#==============================================================================
-
-#for hh in HH.index:
-#    y, x = np.where(polderHH == hh)
-#    z = np.zeros(len(x),dtype=float)
-#    for i in range(len(x)):
-#        z[i] = polderZ[y[i],x[i]]
-#    meanZ = np.mean(z)
-#    HH.set_value(hh,'meanZ',meanZ)
-#    HH.set_value(hh,'profit',maxWL / (1 + np.e ** (-k*(meanZ-mid))))
-#    
-#plt.hist(HH.profit)
+#plt.xlabel('X (m)')
+#plt.ylabel('Y (m)')
+#plt.savefig('agents.png',dpi=300,bbox_inches='tight')
+#
+#
+## Household voting
+#
+##ttt = 3
+##plt.figure()
+##plt.imshow(hhvote_all[ttt],cmap='coolwarm_r',vmin=0,vmax=1)
+##plt.contour(polderHH,colors='black',linewidths=0.5)
+##plt.xlabel('X (m)')
+##plt.ylabel('Y (m)')
+##plt.savefig('HHvote{0}.png'.format(ttt),dpi=300,bbox_inches='tight')
+#
+## Elevation
+#
+#plt.figure()
+#plt.plot(Z_mean)
+#plt.xlabel('Time (years)')
+#plt.ylabel('Mean Elevation (m)')
+#plt.savefig('MeanZ.png',dpi=300,bbox_inches='tight')
+#
+## Wealth
+#
+#plt.figure()
+#plt.plot(wealth_mean)
+#plt.xlabel('Time (years)')
+#plt.ylabel('Mean Wealth (m)')
+#plt.savefig('MeanWealth.png',dpi=300,bbox_inches='tight')
+#
+## Wealth Distribution
+#
+#ttt = 7
+#plt.figure()
+#plt.hist(all_wealth[ttt])
+#plt.xlabel('Wealth (Taka)')
+#plt.ylabel('Count of Households')
+#plt.savefig('wealth{0}.png'.format(ttt),dpi=300,bbox_inches='tight')
