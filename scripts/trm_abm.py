@@ -128,9 +128,11 @@ def logit(z,k,mid):
 # UPDATE PROFIT
 #==============================================================================
 
-def update_profit(Z,n,max_profit):
+def update_profit(Z,n,best_z,max_profit):
     profit = np.zeros_like(Z)
-    profit[Z >= n] = max_profit
+    z_ratio = Z/best_z
+    profit[Z >= n] = z_ratio[Z >= n] * max_profit
+    return profit
 
 #==============================================================================
 # UTILITY FUNCTIONS
@@ -138,5 +140,5 @@ def update_profit(Z,n,max_profit):
 
 # Expected Utility
 def eu(w,t,p,r):
-    u = (w + t * p) * (1 - r)**t
+    u = (w + p) * (1 - r)
     return u

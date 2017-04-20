@@ -23,7 +23,7 @@ parser = lambda x: pd.datetime.strptime(x, '%d-%b-%Y %H:%M:%S')
 start = pd.datetime(2015,5,15,1)
 end = pd.datetime(2016,5,14,1)
 
-tides = abm.load_tides(file,parser,start,end)
+tides = abm.load_tides(file,parser,start,end) + 0.25
 
 # Calculate Mean High Water
 pressure = tides.as_matrix()
@@ -49,7 +49,7 @@ Z,xx,yy = abm.build_polder(X,Y,alpha)
 # GENERATE HOUSEHOLD PARCELS AND INITIALIZE PARAMETERS
 #==============================================================================
 
-N = 25 # number of households
+N = 50 # number of households
 
 polderHH = abm.build_households((Y, X), N)
 
@@ -57,21 +57,13 @@ polderHH = abm.build_households((Y, X), N)
 max_wealth = 10000 # initial max wealth in Taka
 max_profit = 100 # max profit per 1 m^2 land in Taka
 
-mean_z = np.zeros(N)
-wealth = np.zeros(N)
-
-mean_breach_dist = np.zeros(N)
-
-profit = np.zeros((Y,X))
-profit_trm = np.zeros((Y,X))
-
 df = pd.DataFrame()
 
 #==============================================================================
 # TIDAL RIVER MANAGEMENT
 #==============================================================================
 
-time = 5 # in years
+time = 10 # in years
 gs = 0.03 # grain size in m
 ws = ((gs/1000)**2*1650*9.8)/0.018 # settling velocity calculated using Stoke's Law
 rho = 700 # dry bulk density in kg/m^2
@@ -96,45 +88,76 @@ for hh in range(N):
     df.set_value(hh,'elevation',np.mean(Z[polderHH == hh]))
     df.set_value(hh,'wealth',df.loc[hh].elevation/alpha*max_wealth)
 
-
+best_z = 3
+vote = []
 # Run simulation for t time
 for t in range(time):
+    # initialize
     Z_breach = np.zeros(time_horizon+1)
     Z_breach[0] = Z[breachY,breachX]
+    
     z = np.zeros(time_horizon)
-    Z_all= [Z]
+    
+    Z_all = [Z]
+    
     A = np.zeros(time_horizon)
-    flood_risk = np.zeros(time_horizon)
-    wl_risk = (1 - abm.logit(Z,5,MW/2))
-    profit = []
+    
+    flood_risk = [1 - abm.logit(Z,2,MHW/2)]
+    wl_risk = [1 - abm.logit(Z,5,MHW/2)]
+    profit = [abm.update_profit(Z,MW,best_z,max_profit)]
+    
     for tt in range(time_horizon):
         z[tt] = abm.delta_z(tides,tides.index,ws,rho,SSC,dP,dO,Z_breach[tt])
         Z_breach[tt+1] = z[tt]
         A[tt] = z[tt] - Z_breach[tt]
-        Z_all.append(Z_breach[tt] + (D ** -1.3) * A[tt]/D)
-        flood_risk[tt] = (1 - abm.logit(Z_all[tt],5,MHW/2))
-        profit.append(abm.update_profit(Z_all[tt],MHW-0.2,max_profit))
+        Z_all.append(Z_all[tt] + (D ** -1.3) * A[tt]/D)
         
-        
+        flood_risk.append(1 - abm.logit(Z_all[tt],2,MHW/2))
+        wl_risk.append(1 - abm.logit(Z_all[tt],5,MHW/2))
+        profit.append(abm.update_profit(Z_all[tt],MW,best_z,max_profit))
         
     for hh in range(N):
-        eu_base = abm.eu(df.loc[hh].wealth,time_horizon,
-                         np.mean(profit[polderHH==hh]),
-                               np.mean(wl_risk[polderHH==hh]))
-        eu_trm = abm.eu(df.loc[hh].wealth,time_horizon,
-                         np.mean(profit_trm[polderHH==hh]),
-                               np.mean(flood_risk[polderHH==hh]))
-        df.set_value(hh,'utility_base',eu_base)
-        df.set_value(hh,'utility_trm',eu_trm)
+        profit_base = np.mean([profit[0][polderHH==hh]])
+        profit_trm = np.mean([x[polderHH==hh] for x in profit[1:]])
+        risk_base = np.mean([wl_risk[0][polderHH==hh]])
+        risk_trm = np.mean([x[polderHH==hh] for x in flood_risk[1:]])
+        
+        eu_base = (df.loc[hh].wealth + profit_base) * (1 - risk_base)
+        eu_trm = (df.loc[hh].wealth  + profit_trm) * (1 - risk_trm)
+                
+        df.set_value(hh,'eu_base',eu_base)
+        df.set_value(hh,'eu_trm',eu_trm)
+        
         if eu_base >= eu_trm:
             df.set_value(hh,'vote',0)
+            df.set_value(hh,'wealth',df.loc[hh].wealth + profit_base)
         elif eu_base < eu_trm:
             df.set_value(hh,'vote',1)
-        df.set_value(hh,'elevation',np.mean(Z1[polderHH == hh]))
-    breach_vote = np.mean(df.vote)
-    
-    Z_breach = z1
-    
+            df.set_value(hh,'wealth',df.loc[hh].wealth + profit_trm)
+    vote.append(df.vote.mean())
+    if vote[t] > 0.5:
+        Z = Z_all[1]
+#        
+#        
+#        
+#    for hh in range(N):
+#        eu_base = abm.eu(df.loc[hh].wealth,time_horizon,
+#                         np.mean(profit[polderHH==hh]),
+#                               np.mean(wl_risk[polderHH==hh]))
+#        eu_trm = abm.eu(df.loc[hh].wealth,time_horizon,
+#                         np.mean(profit_trm[polderHH==hh]),
+#                               np.mean(flood_risk[polderHH==hh]))
+#        df.set_value(hh,'utility_base',eu_base)
+#        df.set_value(hh,'utility_trm',eu_trm)
+#        if eu_base >= eu_trm:
+#            df.set_value(hh,'vote',0)
+#        elif eu_base < eu_trm:
+#            df.set_value(hh,'vote',1)
+#        df.set_value(hh,'elevation',np.mean(Z1[polderHH == hh]))
+#    breach_vote = np.mean(df.vote)
+#    
+#    Z_breach = z1
+#    
 #==============================================================================
 # DIAGNOSTIC PLOTS
 #==============================================================================
