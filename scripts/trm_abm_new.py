@@ -64,19 +64,6 @@ def logit(z,k,mid):
     return x
 
 #==============================================================================
-# EXTRACT A RECTANGULAR SECTION THROUGH A CUBE AND COLLAPSE
-#==============================================================================
-
-# Given a cube dc[z,y,x], extract a rectangula prism in (x,y), that extends
-# through all z-values, then ravel the x and y dimensions to produce a
-# 2D array with rows = z and columns = raveled x,y.
-
-def extract_and_collapse(dc, p):
-    x = dc[:,p[2]:p[3],p[0]:p[1]]
-    x = x.reshape((x.shape[0], x.shape[1] * x.shape[2]))
-    return x
-
-#==============================================================================
 # DEFINE CLASSES
 #==============================================================================
 
@@ -91,11 +78,25 @@ class household(object):
             self.plots = np.array(plots, dtype=np.integer)
 
     def utility(self, profit_dc):
-        own_patches_profit = np.concatenate([ extract_and_collapse(profit_dc, p) for p in self.plots ],
+        own_patches_profit = np.concatenate([ self.extract_and_collapse(profit_dc, p) for p in self.plots ],
                                       axis = 0)
         profit = np.sum(own_patches_profit, axis = 0)
         eu = self.wealth + np.sum(profit * np.exp(- self.discount * np.arange(len(profit))))
         return eu
+
+    #==============================================================================
+    # EXTRACT A RECTANGULAR SECTION THROUGH A CUBE AND COLLAPSE
+    #==============================================================================
+    
+    # Given a cube dc[z,y,x], extract a rectangula prism in (x,y), that extends
+    # through all z-values, then ravel the x and y dimensions to produce a
+    # 2D array with rows = z and columns = raveled x,y.
+
+    @staticmethod    
+    def extract_and_collapse(dc, p):
+        x = dc[:,p[2]:p[3],p[0]:p[1]]
+        x = x.reshape((x.shape[0], x.shape[1] * x.shape[2]))
+        return x
 
 class polder(object):
     def __init__(self, x, y, border_height = 3.0,
@@ -109,17 +110,17 @@ class polder(object):
         self.initialize_elevation()
         self.initialize_hh(n_households)
 
-    def initialize_elevation(self):
+    def initialize_elevation(self, noise = 0.1):
         wx = np.pi / self.width
         wy = np.pi / self.height
         self.elevation = self.border_height * \
             ( \
              (1.0 - \
                np.outer(np.sin(np.arange(self.height) * wy),
-                        np.sin(np.arange(self.width)) * wx)) + \
-              np.random.normal(0.0, 0.1, (self.height, self.width)) \
+                        np.sin(np.arange(self.width) * wx))) + \
+              noise * np.random.normal(0.0, 1.0, (self.height, self.width)) \
             )
-        self.elevation_cube = np.reshape(self.elevation, (1, self.height, self.width))
+        self.elevation_cube = np.expand_dims(self.elevation.copy(), axis = 0)
 
     def set_elevation(self, elevation, plots, n_households = None):
         if n_households is None:
@@ -154,7 +155,7 @@ class polder(object):
         if z.size == 0:
             hh.wealth = 0
         else:
-            hh.wealth = self.max_wealth * z.size * z.mean() / self.border_height
+            hh.wealth = self.max_wealth * np.sqrt(z.size) * z.mean() / self.border_height
 
     def set_owners_wealth(self):
         for hh in self.households:
@@ -168,7 +169,8 @@ class polder(object):
             hh.plots = plots
         self.set_owners_wealth()
 
-    def build_subplots(self, weights, x0, y0, dx, dy, ix0 = 0):
+    @staticmethod
+    def build_subplots(weights, x0, y0, dx, dy, ix0 = 0):
         plot_sizes = sq.normalize_sizes(weights, dx, dy)
         plots = sq.squarify(plot_sizes, x0, y0, dx, dy)
         plots = pd.DataFrame(plots, columns = ('x', 'y', 'dx', 'dy'))
@@ -180,14 +182,13 @@ class polder(object):
                    ( \
                     plots, \
                     np.expand_dims( np.arange(plots.shape[0], dtype=np.integer),
-                                   axis = 1)  + ix0
+                                   axis = 1)  + int(ix0) \
                    ), \
                  axis = 1)
         return plots
         
 
-    def build_plots(self, weights, subgrid_divs = (5,5)):
-        n_boxes = np.product(subgrid_divs, dtype = np.integer)
+    def build_plots(self, weights, n_boxes = 10):
         n = weights.size / n_boxes
         remainder = weights.size % n
         w = np.random.choice(weights, weights.size, False)
@@ -195,21 +196,21 @@ class polder(object):
         w = w[remainder:]
         w_list = np.random.choice(w, size = (n_boxes, n), replace = False)
         w_list = [ w_list[i] for i in range(w_list.shape[0])]
-        w_index = [(i,j) for i in range(subgrid_divs[0]) for j in range(subgrid_divs[1])]
         if remainder > 0:
             i_dest = np.random.choice(n_boxes, remainder, replace = True)
             for i, j in enumerate(i_dest):
                 w_list[j] = np.append(w_list[j], wr[i])
-        dx = self.width / subgrid_divs[0]
-        dy = self.height / subgrid_divs[1]
-        x0 = np.array(np.round(np.arange(subgrid_divs[0] + 1) * dx), dtype = np.integer)
-        y0 = np.array(np.round(np.arange(subgrid_divs[0] + 1) * dy), dtype = np.integer)
-        dx = x0[1:] - x0[:-1]
-        dy = y0[1:] - y0[:-1]
-        x0 = x0[:-1]
-        y0 = y0[:-1]
-        plot_list = [ self.build_subplots(w_list[i], x0[w_index[i][0]], y0[w_index[i][1]], \
-                                     dx[w_index[i][0]], dy[w_index[i][1]], ix0 = i) \
+        grid_weights = [ np.sum(x) for x in w_list ]
+        scaled_grid_weights = sq.normalize_sizes(grid_weights, self.width, self.height)
+        grid = sq.squarify(scaled_grid_weights, 0, 0, self.width, self.height)
+        grid = pd.DataFrame(grid, columns = ('x', 'y', 'dx', 'dy'))
+        grid['dx'] = np.round(grid['x'] + grid['dx']) - grid['x']
+        grid['dy'] = np.round(grid['y'] + grid['dy']) - grid['y']
+        grid = np.array(np.round(grid), dtype = np.integer)
+        
+        plot_list = [ self.build_subplots(w_list[i], \
+                          grid[i,0], grid[i,1], grid[i,2], grid[i,2],
+                          ix0 = np.sum( [len(w_list[j]) for j in range(i)] )) \
                       for i in range(len(w_list)) ]
         plots = np.concatenate(plot_list, axis = 0)
         self.plots = plots
@@ -244,6 +245,7 @@ class polder(object):
         eu = [hh.utility(self.profit) for hh in self.households]
         return eu
 
+    
 
 pdr = polder(x = 200, y = 100, n_households = 50)
 
