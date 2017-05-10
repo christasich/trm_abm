@@ -168,19 +168,52 @@ class polder(object):
             hh.plots = plots
         self.set_owners_wealth()
 
-    def build_plots(self, weights):
-        plot_sizes = sq.normalize_sizes(weights, self.width, self.height)
-        plots = sq.squarify(plot_sizes, 0, 0, self.width, self.height)
+    def build_subplots(self, weights, x0, y0, dx, dy, ix0 = 0):
+        plot_sizes = sq.normalize_sizes(weights, dx, dy)
+        plots = sq.squarify(plot_sizes, x0, y0, dx, dy)
         plots = pd.DataFrame(plots, columns = ('x', 'y', 'dx', 'dy'))
         plots['xf'] = plots['x'] + plots['dx']
         plots['yf'] = plots['y'] + plots['dy']
         plots = plots[['x','xf','y','yf']]
         plots = np.array(np.round(plots), dtype = np.integer)
-        plots = np.concatenate((plots,
-                               np.expand_dims(np.arange(plots.shape[0], dtype=np.integer),
-                                              axis = 1)),
-                               axis = 1)
+        plots = np.concatenate( \
+                   ( \
+                    plots, \
+                    np.expand_dims( np.arange(plots.shape[0], dtype=np.integer),
+                                   axis = 1)  + ix0
+                   ), \
+                 axis = 1)
+        return plots
+        
+
+    def build_plots(self, weights, subgrid_divs = (5,5)):
+        n_boxes = np.product(subgrid_divs, dtype = np.integer)
+        n = weights.size / n_boxes
+        remainder = weights.size % n
+        w = np.random.choice(weights, weights.size, False)
+        wr = w[0:remainder]
+        w = w[remainder:]
+        w_list = np.random.choice(w, size = (n_boxes, n), replace = False)
+        w_list = [ w_list[i] for i in range(w_list.shape[0])]
+        w_index = [(i,j) for i in range(subgrid_divs[0]) for j in range(subgrid_divs[1])]
+        if remainder > 0:
+            i_dest = np.random.choice(n_boxes, remainder, replace = True)
+            for i, j in enumerate(i_dest):
+                w_list[j] = np.append(w_list[j], wr[i])
+        dx = self.width / subgrid_divs[0]
+        dy = self.height / subgrid_divs[1]
+        x0 = np.array(np.round(np.arange(subgrid_divs[0] + 1) * dx), dtype = np.integer)
+        y0 = np.array(np.round(np.arange(subgrid_divs[0] + 1) * dy), dtype = np.integer)
+        dx = x0[1:] - x0[:-1]
+        dy = y0[1:] - y0[:-1]
+        x0 = x0[:-1]
+        y0 = y0[:-1]
+        plot_list = [ self.build_subplots(w_list[i], x0[w_index[i][0]], y0[w_index[i][1]], \
+                                     dx[w_index[i][0]], dy[w_index[i][1]], ix0 = i) \
+                      for i in range(len(w_list)) ]
+        plots = np.concatenate(plot_list, axis = 0)
         self.plots = plots
+        return plots
 
     def build_households(self, n = None, gini = 0.3):
         if n is not None and n != len(self.households):
