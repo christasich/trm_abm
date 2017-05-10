@@ -11,7 +11,7 @@ Created on Wed Mar 22 15:48:23 2017
 import numpy as np
 import pandas as pd
 import squarify as sq
-from scipy import ndimage
+# from scipy import ndimage
 
 
 #==============================================================================
@@ -55,175 +55,164 @@ def delta_z(heads,time,ws,rho,SSC,dP,dO,z0):
     return (z)
 
 #==============================================================================
-# DEFINE CLASSES
+# CALCULATE WATER LOGGING RISK
 #==============================================================================
 
-def extract_and_collapse(dc, p):
-    x = dc[p[0]:p[1],p[2]:p[3]]
-    x = x.reshape((x.shape[0] * x.shape[1], x.shape[3]))
+# Logit Function
+def logit(z,k,mid):
+    x = 1.0 / (1.0 + np.exp(-k*(z-mid)))
     return x
+
+#==============================================================================
+# EXTRACT A RECTANGULAR SECTION THROUGH A CUBE AND COLLAPSE
+#==============================================================================
+
+# Given a cube dc[z,y,x], extract a rectangula prism in (x,y), that extends
+# through all z-values, then ravel the x and y dimensions to produce a
+# 2D array with rows = z and columns = raveled x,y.
+
+def extract_and_collapse(dc, p):
+    x = dc[:,p[2]:p[3],p[0]:p[1]]
+    x = x.reshape((x.shape[0], x.shape[1] * x.shape[2]))
+    return x
+
+#==============================================================================
+# DEFINE CLASSES
+#==============================================================================
 
 class household(object):
     def __init__(self, id, wealth = 0, plots = None, discount = 0.03):
         self.id = id
         self.wealth = wealth
         self.discount = discount
-        if self.plots is None:
-            self.plots = np.array([], dtype=np.integer)
+        if plots is None:
+            self.plots = np.zeros((0,5), dtype=np.integer)
         else:
             self.plots = np.array(plots, dtype=np.integer)
 
     def utility(self, profit_dc):
-        own_patches = np.concatenate([ extract_and_collapse(profit_dc, p) for p in self.plots ],
+        own_patches_profit = np.concatenate([ extract_and_collapse(profit_dc, p) for p in self.plots ],
                                       axis = 0)
-        profit = np.sum(own_patches, axis = 0)
-        eu = self.wealth, np.sum(profit * np.exp(- self.discount * np.arange(len(profit))))
+        profit = np.sum(own_patches_profit, axis = 0)
+        eu = self.wealth + np.sum(profit * np.exp(- self.discount * np.arange(len(profit))))
         return eu
 
 class polder(object):
-    def __init__(self, x, y, alpha, n_households = 0):
+    def __init__(self, x, y, border_height = 3.0,
+                 n_households = 0, max_wealth = 1.0E4,
+                 gini = 0.3):
         self.width = x
         self.height = y
-        wx = np.pi / x
-        wy = np.pi / y
-        self.elevation = alpha * ((1.0 - np.outer(np.sin(np.arange(y) * wy),
-                                                  np.sin(np.arange(x) * wx))) +
-                          np.random.normal(0.0, 0.1, (y,x)))
-        self.owners = np.zeros((self.height,self.width), dtype = np.integer)
-        if n_households == 0:
-            self.households = []
-            self.owners = np.zeros((x, y), dtype = np.integer)
-        else:
-            self.households = self.build_households(n_households)
-            self.owners = np.zeros((x,y), dtype = np.integer)
+        self.border_height = border_height
+        self.max_wealth = max_wealth
+        self.plots = np.zeros(shape = (0,5), dtype = np.integer)
+        self.initialize_elevation()
+        self.initialize_hh(n_households)
+
+    def initialize_elevation(self):
+        wx = np.pi / self.width
+        wy = np.pi / self.height
+        self.elevation = self.border_height * \
+            ( \
+             (1.0 - \
+               np.outer(np.sin(np.arange(self.height) * wy),
+                        np.sin(np.arange(self.width)) * wx)) + \
+              np.random.normal(0.0, 0.1, (self.height, self.width)) \
+            )
+        self.elevation_cube = np.reshape(self.elevation, (1, self.height, self.width))
+
+    def set_elevation(self, elevation, plots, n_households = None):
+        if n_households is None:
+            n_households = len(self.households)
+        self.elevation = elevation
+        self.owners = np.zeros_like(self.elevation, dtype = np.integer)
+        self.plots = plots
+        self.initialize_hh_from_plots(n_households)
+        self.elevation_cube = np.reshape(self.elevation, (self.height, self.width, 1))
+
+    def initialize_hh(self, n_households):
+        self.owners = np.zeros_like(self.elevation, dtype = np.integer)
+        self.households = []
+        if n_households > 0:
+            self.build_households(n_households)
             for hh in self.households:
                 for p in hh.plots:
-                    self.owners[p[0]:p[1],p[2]:p[3]] = hh.id
+                    self.owners[p[2]:p[3],p[0]:p[1]] = hh.id
 
+    def initialize_hh_from_plots(self, n_households):
+        assert max(self.owners) < n_households
+        self.households = [household(id = i) for i in range(n_households)]
+        self.set_hh_plots()
 
-    def build_households(self, n, gini = 0.3):
-        if len(self.households) != n:
-            self.households = [household(0.0) for i in range(n)]
-        if isinstance(gini, dict):
-            gini_land = gini['land']
-            gini_wealth = gini['wealth']
-        elif isinstance(gini, (list,tuple)):
-            if (len(gini) > 1):
-                gini_wealth = gini[0]
-                gini_land = gini[1]
-            else:
-                gini_wealth = gini_land = gini[0]
+    def set_households(self, households):
+        self.households = households
+        self.owners = np.zeros_like(self.elevation, dtype = np.integer)
+        self.set_owners_wealth()
+
+    def set_hh_wealth(self, hh):
+        z = self.elevation[self.owners == hh.id]
+        if z.size == 0:
+            hh.wealth = 0
         else:
-            gini_wealth = gini_land = gini
+            hh.wealth = self.max_wealth * z.size * z.mean() / self.border_height
 
-        alpha = (1.0 / gini_land + 1.0) / 2.0
-        plot_sizes = sq.normalize_sizes(np.random.pareto(alpha, size = n),
-                                        self.width, self.height)
+    def set_owners_wealth(self):
+        for hh in self.households:
+            for p in hh.plots:
+                self.owners[p[2]:p[3],p[0]:p[1]] = hh.id
+            self.set_hh_wealth(hh)
+
+    def set_hh_plots(self):
+        for hh in self.households:
+            plots = self.plots[self.plots[:,4] == hh.id]
+            hh.plots = plots
+        self.set_owners_wealth()
+
+    def build_plots(self, weights):
+        plot_sizes = sq.normalize_sizes(weights, self.width, self.height)
         plots = sq.squarify(plot_sizes, 0, 0, self.width, self.height)
         plots = pd.DataFrame(plots, columns = ('x', 'y', 'dx', 'dy'))
         plots['xf'] = plots['x'] + plots['dx']
         plots['yf'] = plots['y'] + plots['dy']
         plots = plots[['x','xf','y','yf']]
         plots = np.array(np.round(plots), dtype = np.integer)
-        for i in range(n):
-            p = plots[i]
-            self.households[i].plots = p
-            self.owners[p[0]:p[1],p[2]:p[3]] = i
+        plots = np.concatenate((plots,
+                               np.expand_dims(np.arange(plots.shape[0], dtype=np.integer),
+                                              axis = 1)),
+                               axis = 1)
+        self.plots = plots
+
+    def build_households(self, n = None, gini = 0.3):
+        if n is not None and n != len(self.households):
+            print "Initializing", n, "households"
+            self.households = [household(id = i) for i in range(n)]
+        else:
+            print "n = ", type(n), ", ", n, ", length = ", len(self.households)
+        if isinstance(gini, dict):
+            gini_land = gini['land']
+        elif isinstance(gini, (list,tuple)):
+            if (len(gini) > 1):
+                gini_land = gini[0]
+            else:
+                gini_land = gini[0]
+        else:
+            gini_land = gini
+
+        alpha = (1.0 / gini_land + 1.0) / 2.0
+        weights = np.random.pareto(alpha, size = len(self.households))
+
+        self.build_plots(weights)
+        self.set_hh_plots()
+
+    def calc_profit(self, water_level, max_profit, k):
+        self.profit = logit(self.elevation_cube, k, water_level / 2.0)
+
+    def calc_eu(self):
+        eu = [hh.utility(self.profit) for hh in self.households]
+        return eu
+
+
+pdr = polder(x = 200, y = 100, n_households = 50)
 
 
 
-
-
-
-
-
-#==============================================================================
-# BUILD ENVIRONMENT
-#==============================================================================
-
-def build_polder(x,y,alpha):
-    X = np.arange(x)
-    Y = np.arange(y)
-    wx = 2 * np.pi / (x * 2)
-    wy = 2 * np.pi / (y * 2)
-    xx,yy = np.meshgrid(X,Y)
-    z = alpha - alpha * np.sin(xx*wx) * np.sin(yy*wy) + np.random.uniform(0,0.1,(y,x))
-    return z,xx,yy
-
-#==============================================================================
-# BUILD HOUSEHOLDS
-#==============================================================================
-
-def build_households(shape,N,maxiter=100):
-    growth_kernels = """
-    555555555 543212345
-    444444444 543212345
-    333333333 543212345
-    222222222 543212345
-    111101111 543202345
-    222222222 543212345
-    333333333 543212345
-    444444444 543212345
-    555555555 543212345
-    """
-    # load kernels
-    kernels = np.array([[[int(d) for d in s] for s in l.strip().split()]
-                        for l in growth_kernels.split('\n')
-                        if l.strip()], np.int)
-    nlev = np.max(kernels) + 1
-    # special case for binary kernels
-    if nlev == 2:
-        kernels = 2 - kernels
-        nlev = 3
-    kernels = -kernels.swapaxes(0, 1) * N
-    key, kex = kernels.shape[1:]
-    kernels[:, key//2, kex//2] = 0
-    # seed patches leave a gap between 0 and the first patch
-    out = np.zeros(shape, int)
-    out.ravel()[np.random.choice(out.size, N)] = np.arange((nlev-1)*N+1, nlev*N+1)
-    # shuffle labels after each iteration, so larger numbers do not get
-    # a systematic advantage
-    shuffle = np.arange((nlev+1)*N+1)
-    # also map negative labels to zero
-    shuffle[nlev*N+1:] = 0
-    shuffle_helper = shuffle[1:nlev*N+1].reshape(nlev, -1)
-    for j in range(maxiter):
-        # pick one of the kernels
-        k = np.random.randint(0, kernels.shape[0])
-        # grow patches
-        out = ndimage.grey_dilation(
-            out, kernels.shape[1:], structure=kernels[k], mode='constant')
-        # shuffle
-        shuffle_helper[...] = np.random.permutation(
-            shuffle[(nlev-1)*N+1:nlev*N+1])
-        out = shuffle[out]
-        if np.all(out):
-            break
-    return out % N
-#==============================================================================
-# CALCULATE WATER LOGGING PARAMETER
-#==============================================================================
-
-# Logit Function
-def logit(z,k,mid):
-    x = 1/(1+np.e**(-k*(z-mid)))
-    return x
-
-#==============================================================================
-# UPDATE PROFIT
-#==============================================================================
-
-def update_profit(Z,n,best_z,max_profit):
-    profit = np.zeros_like(Z)
-    z_ratio = Z/best_z
-    profit[Z >= n] = z_ratio[Z >= n] * max_profit
-    return profit
-
-#==============================================================================
-# UTILITY FUNCTIONS
-#==============================================================================
-
-# Expected Utility
-def eu(w,t,p,r):
-    u = (w + p) * (1 - r)
-    return u
