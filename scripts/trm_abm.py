@@ -38,7 +38,7 @@ def delta_z(heads,time,ws,rho,SSC,dP,dO,z0):
     dt = float((time[1]-time[0]).seconds)
     j = 1
     for h in heads[1:]:
-        dh[j] = (h-heads[j-1])/dt
+        dh[j] = (h-heads[j-1]) / dt
         C0[j] = 0
         if h > z[j]:
             if dh[j] > 0:
@@ -53,6 +53,31 @@ def delta_z(heads,time,ws,rho,SSC,dP,dO,z0):
         j = j + 1
     z = z[-1]
     return (z)
+
+def delta_z_2(heads,time,ws,rho,SSC,dP,dO,z0):
+    C0 = np.zeros(len(heads))
+    C = np.zeros_like(C0)
+    dz = np.zeros_like(C0)
+    dh = np.zeros_like(C0)
+    z = np.zeros_like(C0)
+    z[0] = z0
+    dt = float((time[1]-time[0]).seconds)
+    dh = (heads.values[1:] - heads.values[:-1])
+    for j,h in enumerate(heads[1:]):
+        C0[j+1] = 0
+        if h > z[j]:
+            if dh[j] > 0:
+                C0[j+1] = 0.69 * SSC * (h - z[j])
+                C[j+1] = ( C0[j+1] * dh[j] + C[j] * (h - z[j]) ) / (h + dh[j] - z[j] + ws/dt)
+            else:
+                C[j+1] = ( C[j] * (h - z[j]) ) / (h - z[j] + ws/dt)
+        else:
+            C[j+1] = 0
+        dz[j] = (ws*C[j+1]/rho)*dt
+        z[j+1] = z[j] + dz[j] + dO - dP
+    z = z[-1]
+    return (z)
+
 
 #==============================================================================
 # CALCULATE WATER LOGGING RISK
@@ -84,9 +109,9 @@ class household(object):
         eu = self.wealth + np.sum(profit * np.exp(- self.discount * np.arange(len(profit))))
         return eu
 
-    #==============================================================================
+    #==========================================================================
     # EXTRACT A RECTANGULAR SECTION THROUGH A CUBE AND COLLAPSE
-    #==============================================================================
+    #==========================================================================
     
     # Given a cube dc[z,y,x], extract a rectangula prism in (x,y), that extends
     # through all z-values, then ravel the x and y dimensions to produce a
@@ -98,6 +123,25 @@ class household(object):
         x = x.reshape((x.shape[0], x.shape[1] * x.shape[2]))
         return x
 
+class breach(object):
+    def __init__(self, pldr, breach_x, breach_y):
+        self.pldr = pldr
+        self.x = breach_x
+        self.y = breach_y
+        xx,yy = np.meshgrid(np.arange(pldr.width), np.arange(pldr.height))
+        delta_x = xx - breach_x
+        delta_y = yy - breach_y
+        self.dist = np.hypot(delta_x, delta_y)
+        self.scaled_dist = self.dist / 1000. + 1.
+        self.z_breach = 0.0
+        self.A = 0.0
+
+    def delta_z(self, heads, ws, rho, SSC, dP, dO):
+        dz = delta_z_2(heads, heads.index, ws, rho, SSC, dP, dO, self.z_breach)
+        self.A = dz - self.z_breach
+        self.z_breach = dz
+        
+
 class polder(object):
     def __init__(self, x, y, border_height = 3.0,
                  n_households = 0, max_wealth = 1.0E4,
@@ -107,6 +151,7 @@ class polder(object):
         self.border_height = border_height
         self.max_wealth = max_wealth
         self.plots = np.zeros(shape = (0,5), dtype = np.integer)
+        self.breaches = []
         self.initialize_elevation()
         self.initialize_hh(n_households)
 
@@ -244,10 +289,19 @@ class polder(object):
     def calc_eu(self):
         eu = [hh.utility(self.profit) for hh in self.households]
         return eu
-
     
+    def add_breach(self, breach_x, breach_y):
+        self.breaches.append(breach(self, breach_x, breach_y))
+    
+    def delta_z(self, heads, ws, rho, SSC, dP, dO):
+        for b in self.breaches:
+            b.delta_z(heads, ws, rho, SSC, dP, dO)
+            new_layer = self.elevation_cube[-1] + \
+                (b.scaled_dist ** -1.3) * b.A / b.scaled_dist
+            self.elevation_cube = np.concatenate((self.elevation_cube, np.expand_dims(new_layer, axis = 0)), axis = 0)
 
-pdr = polder(x = 200, y = 100, n_households = 50)
+
+pdr = polder(x = 500, y = 300, n_households = 100)
 
 
 
