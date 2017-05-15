@@ -9,8 +9,10 @@ Created on Wed Mar 22 15:48:23 2017
 #==============================================================================
 
 import numpy as np
+import numpy.ma as ma
 import pandas as pd
 import squarify as sq
+# from itertools import izip, count
 # from scipy import ndimage
 
 
@@ -54,7 +56,7 @@ def delta_z(heads,time,ws,rho,SSC,dP,dO,z0):
     z = z[-1]
     return (z)
 
-def delta_z_2(heads,time,ws,rho,SSC,dP,dO,z0):
+def  aggrade_patch(heads,time,ws,rho,SSC,dP,dO,z0):
     C0 = np.zeros(len(heads))
     C = np.zeros_like(C0)
     dz = np.zeros_like(C0)
@@ -78,6 +80,27 @@ def delta_z_2(heads,time,ws,rho,SSC,dP,dO,z0):
     z = z[-1]
     return (z)
 
+def  aggrade_patches(heads,time,ws,rho,SSC,dP,dO,z0, z_breach):
+    z = z0.copy()
+    C_last = np.zeros_like(z0)
+    dt = float((time[1]-time[0]).seconds)
+    delta_h = (heads.values[1:] - heads.values[:-1])
+    for h, dh in zip(heads[1:], delta_h):
+        if h > z_breach:
+            delta_z = ma.masked_less_equal(h-z, 0.0)
+            delta_z.set_fill_value(0.0)
+            if dh > 0:
+                # C0 = 0.69 * SSC * delta_z
+                C_next = ( delta_z * ( 0.69 * dh * SSC + C_last) ) / (delta_z + dh + ws/dt)
+            else:
+                C_next = ( C_last * delta_z ) / (delta_z + ws/dt)
+        else:
+            C_next = ma.array(np.zeros_like(z0), ma.nomask)
+        C_last = C_next.filled()
+        dz = C_last * ws * dt / rho
+        z += dz + dO - dP
+        # print "Sum(dz) = ", np.sum(dz), ", Sum(C_last) = ", np.sum(C_last)
+    return (z)
 
 #==============================================================================
 # CALCULATE WATER LOGGING RISK
@@ -124,32 +147,39 @@ class household(object):
         return x
 
 class breach(object):
-    def __init__(self, pldr, breach_x, breach_y):
+    def __init__(self, pldr, breach_x, breach_y, breach_z):
         self.pldr = pldr
         self.x = breach_x
         self.y = breach_y
+        self.z_breach = breach_z
         xx,yy = np.meshgrid(np.arange(pldr.width), np.arange(pldr.height))
         delta_x = xx - breach_x
         delta_y = yy - breach_y
         self.dist = np.hypot(delta_x, delta_y)
         self.scaled_dist = self.dist / 1000. + 1.
-        self.z_breach = 0.0
         self.A = 0.0
 
-    def delta_z(self, heads, ws, rho, SSC, dP, dO):
-        dz = delta_z_2(heads, heads.index, ws, rho, SSC, dP, dO, self.z_breach)
-        self.A = dz - self.z_breach
-        self.z_breach = dz
+#    def aggrade(self, heads, ws, rho, SSC, dP, dO):
+#        dz = aggrade_patch(heads, heads.index, ws, rho, SSC, dP, dO, self.z_breach)
+#        self.A = dz - self.z_breach
+#        self.z_breach = dz
         
 
 class polder(object):
-    def __init__(self, x, y, border_height = 3.0,
-                 n_households = 0, max_wealth = 1.0E4,
+    def __init__(self, x, y, 
+                 time_horizon,
+                 border_height = 1.0,
+                 n_households = 0, 
+                 max_wealth = 1.0E4, max_profit = 100.,
                  gini = 0.3):
         self.width = x
         self.height = y
         self.border_height = border_height
         self.max_wealth = max_wealth
+        self.max_profit = max_profit
+        self.time_horizon = time_horizon
+        self.breach_duration = 0
+        self.current_period = 0
         self.plots = np.zeros(shape = (0,5), dtype = np.integer)
         self.breaches = []
         self.initialize_elevation()
@@ -165,7 +195,9 @@ class polder(object):
                         np.sin(np.arange(self.width) * wx))) + \
               noise * np.random.normal(0.0, 1.0, (self.height, self.width)) \
             )
-        self.elevation_cube = np.expand_dims(self.elevation.copy(), axis = 0)
+        self.elevation_cube = np.zeros((self.time_horizon, self.height, self.width))
+        self.elevation_cube[0] = self.elevation
+        self.current_period = 0
 
     def set_elevation(self, elevation, plots, n_households = None):
         if n_households is None:
@@ -174,7 +206,9 @@ class polder(object):
         self.owners = np.zeros_like(self.elevation, dtype = np.integer)
         self.plots = plots
         self.initialize_hh_from_plots(n_households)
-        self.elevation_cube = np.reshape(self.elevation, (self.height, self.width, 1))
+        self.elevation_cube = np.zeros((self.time_horizon, self.height, self.width))
+        self.elevation_cube[0] = self.elevation
+        self.current_period = 0
 
     def initialize_hh(self, n_households):
         self.owners = np.zeros_like(self.elevation, dtype = np.integer)
@@ -283,25 +317,90 @@ class polder(object):
         self.build_plots(weights)
         self.set_hh_plots()
 
-    def calc_profit(self, water_level, max_profit, k):
-        self.profit = logit(self.elevation_cube, k, water_level / 2.0)
+    def calc_profit(self, water_level, k):
+        self.profit = self.max_profit * logit(self.elevation_cube, k, water_level / 2.0)
 
     def calc_eu(self):
         eu = [hh.utility(self.profit) for hh in self.households]
         return eu
     
-    def add_breach(self, breach_x, breach_y):
-        self.breaches.append(breach(self, breach_x, breach_y))
+    def add_breach(self, breach_x, breach_y, duration):
+        self.breach_duration = duration,
+        self.breaches.append(breach(self, breach_x, breach_y, self.border_height))
     
-    def delta_z(self, heads, ws, rho, SSC, dP, dO):
+#    def delta_z(self, heads, ws, rho, SSC, dP, dO):
+#        for b in self.breaches:
+#            b.delta_z(heads, ws, rho, SSC, dP, dO)
+#            new_layer = self.elevation_cube[-1] + \
+#                (b.scaled_dist ** -1.3) * b.A / b.scaled_dist
+#            self.elevation_cube = np.concatenate((self.elevation_cube, np.expand_dims(new_layer, axis = 0)), axis = 0)
+
+    def aggrade(self, heads, ws, rho, SSC, dP, dO):
+        sed_load = np.zeros_like(self.elevation)
         for b in self.breaches:
-            b.delta_z(heads, ws, rho, SSC, dP, dO)
-            new_layer = self.elevation_cube[-1] + \
-                (b.scaled_dist ** -1.3) * b.A / b.scaled_dist
-            self.elevation_cube = np.concatenate((self.elevation_cube, np.expand_dims(new_layer, axis = 0)), axis = 0)
+            sed_load += SSC * b.scaled_dist ** -2.3
+        new_layer = self.elevation_cube[-1]
+        for i in range(self.height):
+            for j in range(self.width):
+                new_layer[i,j] = aggrade_patch(heads, heads.index, ws, rho, sed_load[i,j], dP, dO, new_layer[i,j])
+        self.elevation_cube = np.concatenate(self.elevation_cube, np.expand_dims(new_layer, axis=0), axis = 0)
+
+    def aggrade_2(self, heads, ws, rho, SSC, dP, dO, period = -1):
+        if period < 0:
+            period = self.current_period + 1
+        assert(period > 0 and period < self.time_horizon)
+        sed_load = np.zeros_like(self.elevation)
+        for b in self.breaches:
+            sed_load += SSC * b.scaled_dist ** -2.3
+        new_layer = self.elevation_cube[period - 1]
+        new_layer = aggrade_patches(heads, heads.index, ws, rho, sed_load, dP, dO, new_layer, self.border_height)
+        self.elevation_cube[period] = new_layer
 
 
-pdr = polder(x = 500, y = 300, n_households = 100)
+def test():
+    global pdr
+    global tides
+    global ws
+    global rho
+    global SSC
+    global dP
+    global dO
+    
+    file = '../data/p32_tides.dat'
+    parser = lambda x: pd.datetime.strptime(x, '%d-%b-%Y %H:%M:%S')
+    start = pd.datetime(2015,5,15,1)
+    end = pd.datetime(2016,5,14,1)
+    
+    tides = load_tides(file,parser,start,end) + 0.25
+    
+    # Calculate Mean High Water
+#    pressure = tides.as_matrix()
+#    MW = np.mean(tides)
+#    HW = pressure[argrelextrema(pressure, np.greater)[0]]
+#    LW = pressure[argrelextrema(pressure, np.less)[0]]
+#    MHW = np.mean(HW)
+#    MLW = np.mean(LW)
+    
+    X = 500 # X size of polder
+    Y = 300 # Y size of polder
+    year = 8759
+    N = 100 # number of households
+    
+    # Initialize dataframe of household paramters
+    max_wealth = 10000 # initial max wealth in Taka
+    max_profit = 100 # max profit per 1 m^2 land in Taka    
+    
+    time = 10 # in years
+    gs = 0.03 # grain size in m
+    ws = ((gs/1000)**2*1650*9.8)/0.018 # settling velocity calculated using Stoke's Law
+    rho = 700 # dry bulk density in kg/m^2
+    SSC = 0.4 # suspended sediment concentration in g/L
+    dP = 0 # compaction
+    dO = 0 # organic matter deposition
+    
+    # breach coordinates on polder
+    breachX = 0
+    breachY = Y/2
 
-
-
+    pdr = polder(x = X, y = Y, time_horizon= time, n_households = N, max_wealth=max_wealth, max_profit = max_profit)
+    pdr.add_breach(breachX, breachY, time)
