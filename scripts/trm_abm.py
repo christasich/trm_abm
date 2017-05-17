@@ -195,7 +195,7 @@ class polder(object):
                         np.sin(np.arange(self.width) * wx))) + \
               noise * np.random.normal(0.0, 1.0, (self.height, self.width)) \
             )
-        self.elevation_cube = np.zeros((self.time_horizon, self.height, self.width))
+        self.elevation_cube = np.zeros((self.time_horizon + 1, self.height, self.width))
         self.elevation_cube[0] = self.elevation
         self.current_period = 0
 
@@ -206,7 +206,7 @@ class polder(object):
         self.owners = np.zeros_like(self.elevation, dtype = np.integer)
         self.plots = plots
         self.initialize_hh_from_plots(n_households)
-        self.elevation_cube = np.zeros((self.time_horizon, self.height, self.width))
+        self.elevation_cube = np.zeros((self.time_horizon + 1, self.height, self.width))
         self.elevation_cube[0] = self.elevation
         self.current_period = 0
 
@@ -348,7 +348,7 @@ class polder(object):
     def aggrade_2(self, heads, ws, rho, SSC, dP, dO, period = -1):
         if period < 0:
             period = self.current_period + 1
-        assert(period > 0 and period < self.time_horizon)
+        assert(period > 0 and period <= self.time_horizon)
         sed_load = np.zeros_like(self.elevation)
         for b in self.breaches:
             sed_load += SSC * b.scaled_dist ** -2.3
@@ -383,7 +383,7 @@ def test():
     
     X = 500 # X size of polder
     Y = 300 # Y size of polder
-    year = 8759
+    year = 8759 # hours in a year
     N = 100 # number of households
     
     # Initialize dataframe of household paramters
