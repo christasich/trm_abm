@@ -30,56 +30,6 @@ def load_tides(file,parser,start,end):
 # CHANGE IN ELEVATION
 #==============================================================================
 
-def delta_z(heads,time,ws,rho,SSC,dP,dO,z0):
-    C0 = np.zeros(len(heads))
-    C = np.zeros(len(heads))
-    dz = np.zeros(len(heads))
-    dh = np.zeros(len(heads))
-    z = np.zeros(len(heads)+1)
-    z[0:2] = z0
-    dt = float((time[1]-time[0]).seconds)
-    j = 1
-    for h in heads[1:]:
-        dh[j] = (h-heads[j-1]) / dt
-        C0[j] = 0
-        if h > z[j]:
-            if dh[j] > 0:
-                C0[j] = 0.69*SSC*(h-z[j])
-                C[j] = (C0[j]*(h-heads[j-1])+C[j-1]*(h-z[j]))/(2*h-heads[j-1]-z[j]+ws/dt)
-            else:
-                C[j] = (C[j-1]*(h-z[j]))/(h-z[j]+ws/dt)
-        else:
-            C[j] = 0
-        dz[j] = (ws*C[j]/rho)*dt
-        z[j+1] = z[j] + dz[j] + dO - dP
-        j = j + 1
-    z = z[-1]
-    return (z)
-
-def  aggrade_patch(heads,time,ws,rho,SSC,dP,dO,z0):
-    C0 = np.zeros(len(heads))
-    C = np.zeros_like(C0)
-    dz = np.zeros_like(C0)
-    dh = np.zeros_like(C0)
-    z = np.zeros_like(C0)
-    z[0] = z0
-    dt = float((time[1]-time[0]).seconds)
-    dh = (heads.values[1:] - heads.values[:-1])
-    for j,h in enumerate(heads[1:]):
-        C0[j+1] = 0
-        if h > z[j]:
-            if dh[j] > 0:
-                C0[j+1] = 0.69 * SSC * (h - z[j])
-                C[j+1] = ( C0[j+1] * dh[j] + C[j] * (h - z[j]) ) / (h + dh[j] - z[j] + ws/dt)
-            else:
-                C[j+1] = ( C[j] * (h - z[j]) ) / (h - z[j] + ws/dt)
-        else:
-            C[j+1] = 0
-        dz[j] = (ws*C[j+1]/rho)*dt
-        z[j+1] = z[j] + dz[j] + dO - dP
-    z = z[-1]
-    return (z)
-
 def  aggrade_patches(heads,time,ws,rho,SSC,dP,dO,z0, z_breach):
     z = z0.copy()
     C_last = np.zeros_like(z0)
@@ -158,11 +108,6 @@ class breach(object):
         self.dist = np.hypot(delta_x, delta_y)
         self.scaled_dist = self.dist / 1000. + 1.
         self.A = 0.0
-
-#    def aggrade(self, heads, ws, rho, SSC, dP, dO):
-#        dz = aggrade_patch(heads, heads.index, ws, rho, SSC, dP, dO, self.z_breach)
-#        self.A = dz - self.z_breach
-#        self.z_breach = dz
         
 
 class polder(object):
@@ -215,9 +160,10 @@ class polder(object):
         self.households = []
         if n_households > 0:
             self.build_households(n_households)
+            self.owners.fill(-1)
             for hh in self.households:
                 for p in hh.plots:
-                    self.owners[p[2]:p[3],p[0]:p[1]] = hh.id
+                    self.owners[p[1]:(p[1]+p[3]),p[0]:(p[0]+p[2])] = hh.id
 
     def initialize_hh_from_plots(self, n_households):
         assert max(self.owners) < n_households
@@ -237,9 +183,10 @@ class polder(object):
             hh.wealth = self.max_wealth * np.sqrt(z.size) * z.mean() / self.border_height
 
     def set_owners_wealth(self):
+        self.owners.fill(-1.0)
         for hh in self.households:
             for p in hh.plots:
-                self.owners[p[2]:p[3],p[0]:p[1]] = hh.id
+                self.owners[p[1]:(p[1]+p[3]),p[0]:(p[0]+p[2])] = hh.id
             self.set_hh_wealth(hh)
 
     def set_hh_plots(self):
@@ -253,9 +200,9 @@ class polder(object):
         plot_sizes = sq.normalize_sizes(weights, dx, dy)
         plots = sq.squarify(plot_sizes, x0, y0, dx, dy)
         plots = pd.DataFrame(plots, columns = ('x', 'y', 'dx', 'dy'))
-        plots['xf'] = plots['x'] + plots['dx']
-        plots['yf'] = plots['y'] + plots['dy']
-        plots = plots[['x','xf','y','yf']]
+        plots['dx'] = np.round(plots['x'] + plots['dx']) - np.round(plots['x'])
+        plots['dy'] = np.round(plots['y'] + plots['dy']) - np.round(plots['y'])
+        plots = plots[['x','y','dx','dy']]
         plots = np.array(np.round(plots), dtype = np.integer)
         plots = np.concatenate( \
                    ( \
@@ -283,17 +230,22 @@ class polder(object):
         scaled_grid_weights = sq.normalize_sizes(grid_weights, self.width, self.height)
         grid = sq.squarify(scaled_grid_weights, 0, 0, self.width, self.height)
         grid = pd.DataFrame(grid, columns = ('x', 'y', 'dx', 'dy'))
-        grid['dx'] = np.round(grid['x'] + grid['dx']) - grid['x']
-        grid['dy'] = np.round(grid['y'] + grid['dy']) - grid['y']
+        grid['dx'] = np.round(grid['x'] + grid['dx']) - np.round(grid['x'])
+        grid['dy'] = np.round(grid['y'] + grid['dy']) - np.round(grid['y'])
         grid = np.array(np.round(grid), dtype = np.integer)
+#        self.grid = grid.copy()
+#        self.w_list = w_list
+#        self.grid_weights = grid_weights
+        
+        cum_len = np.cumsum( np.concatenate( (np.zeros((1,)), [len(ww) for ww in w_list[:-1]]) ) )
         
         plot_list = [ self.build_subplots(w_list[i], \
-                          grid[i,0], grid[i,1], grid[i,2], grid[i,2],
-                          ix0 = np.sum( [len(w_list[j]) for j in range(i)] )) \
+                          grid[i,0], grid[i,1], grid[i,2], grid[i,3],
+                          ix0 = cum_len[i]) \
                       for i in range(len(w_list)) ]
+#        self.plot_list = plot_list
         plots = np.concatenate(plot_list, axis = 0)
         self.plots = plots
-        return plots
 
     def build_households(self, n = None, gini = 0.3):
         if n is not None and n != len(self.households):
@@ -328,24 +280,7 @@ class polder(object):
         self.breach_duration = duration,
         self.breaches.append(breach(self, breach_x, breach_y, self.border_height))
     
-#    def delta_z(self, heads, ws, rho, SSC, dP, dO):
-#        for b in self.breaches:
-#            b.delta_z(heads, ws, rho, SSC, dP, dO)
-#            new_layer = self.elevation_cube[-1] + \
-#                (b.scaled_dist ** -1.3) * b.A / b.scaled_dist
-#            self.elevation_cube = np.concatenate((self.elevation_cube, np.expand_dims(new_layer, axis = 0)), axis = 0)
-
-    def aggrade(self, heads, ws, rho, SSC, dP, dO):
-        sed_load = np.zeros_like(self.elevation)
-        for b in self.breaches:
-            sed_load += SSC * b.scaled_dist ** -2.3
-        new_layer = self.elevation_cube[-1]
-        for i in range(self.height):
-            for j in range(self.width):
-                new_layer[i,j] = aggrade_patch(heads, heads.index, ws, rho, sed_load[i,j], dP, dO, new_layer[i,j])
-        self.elevation_cube = np.concatenate(self.elevation_cube, np.expand_dims(new_layer, axis=0), axis = 0)
-
-    def aggrade_2(self, heads, ws, rho, SSC, dP, dO, period = -1):
+    def aggrade(self, heads, ws, rho, SSC, dP, dO, period = -1):
         if period < 0:
             period = self.current_period + 1
         assert(period > 0 and period <= self.time_horizon)
