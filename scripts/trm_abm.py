@@ -12,6 +12,7 @@ import numpy as np
 import numpy.ma as ma
 import pandas as pd
 import squarify as sq
+from scipy.signal import argrelextrema
 # from itertools import izip, count
 # from scipy import ndimage
 
@@ -76,7 +77,7 @@ class household(object):
             self.plots = np.array(plots, dtype=np.integer)
 
     def utility(self, profit_dc):
-        own_patches_profit = np.concatenate([ self.extract_and_collapse(profit_dc, p) for p in self.plots ],
+        own_patches_profit = np.concatenate([ household.extract_and_collapse(profit_dc, p) for p in self.plots ],
                                       axis = 0)
         profit = np.sum(own_patches_profit, axis = 0)
         eu = self.wealth + np.sum(profit * np.exp(- self.discount * np.arange(len(profit))))
@@ -92,7 +93,7 @@ class household(object):
 
     @staticmethod
     def extract_and_collapse(dc, p):
-        x = dc[:,p[2]:p[3],p[0]:p[1]]
+        x = dc[:,p[1]:(p[1] + p[3]),p[0]:(p[0] + p[2])].copy()
         x = x.reshape((x.shape[0], x.shape[1] * x.shape[2]))
         return x
 
@@ -271,12 +272,44 @@ class polder(object):
         self.build_plots(weights)
         self.set_hh_plots()
 
-    def calc_profit(self, water_level, k):
-        self.profit = self.max_profit * logit(self.elevation_cube, k, water_level / 2.0)
+    def calc_profit(self, water_level, k, elevation_cube = None, save = True):
+        if elevation_cube is None:
+            elevation_cube = self.elevation_cube
+        profit = self.max_profit * logit(elevation_cube, k, water_level / 2.0)
+        if save:
+            self.profit = profit.copy()
+        return profit
 
-    def calc_eu(self):
-        eu = [hh.utility(self.profit) for hh in self.households]
+    def calc_eu(self, profit_cube = None, save = True):
+        if profit_cube is None:
+            profit_cube = self.profit.copy()
+        hh_eu = [hh.utility(profit_cube) for hh in self.households]
+        eu = np.zeros_like(self.owners, np.double)
+        for i in range(eu.shape[0]):
+            for j in range(eu.shape[1]):
+                eu[i,j] = hh_eu[self.owners[i,j]]
+        if save:
+            self.eu = eu.copy()
         return eu
+
+    def calc_eu_series(self, trm_water_level, trm_k, wl_water_level, wl_k, horizon = None, elevation_cube = None, save = True):
+        if horizon is None:
+            horizon = self.time_horizon
+        if elevation_cube is None:
+            elevation_cube = self.elevation_cube
+        eu_cube = np.zeros((horizon , self.elevation.shape[0], self.elevation.shape[1]), np.double)
+        ec0 = elevation_cube[:horizon+1].copy()
+        profit = np.zeros_like(ec0, np.double)
+        for i in range(horizon):
+            ec = ec0.copy()
+            for j in range(i+1,horizon+1):
+                ec[j] = ec[i]
+            profit[:i] = self.calc_profit(trm_water_level, trm_k, ec[:i], False)
+            profit[i:] = self.calc_profit(wl_water_level, wl_k, ec[i:], False)
+            eu = self.calc_eu(profit, False)
+            eu_cube[i] = eu
+        self.eu_cube = eu_cube.copy()
+        return eu_cube
 
     def add_breach(self, breach_x, breach_y, duration):
         self.breach_duration = duration,
@@ -292,9 +325,10 @@ class polder(object):
         new_layer = self.elevation_cube[period - 1]
         new_layer = aggrade_patches(heads, heads.index, ws, rho, sed_load, dP, dO, new_layer, self.border_height)
         self.elevation_cube[period] = new_layer
+        self.current_period = period
 
 
-def test():
+def test(elevation_cube = None):
     global pdr
     global tides
     global ws
@@ -302,6 +336,13 @@ def test():
     global SSC
     global dP
     global dO
+    global MW
+    global HW
+    global LW
+    global MHW
+    global MLW
+    global elevation_cube
+    global ecc
 
     file = '../data/p32_tides.dat'
     parser = lambda x: pd.datetime.strptime(x, '%d-%b-%Y %H:%M:%S')
@@ -311,12 +352,12 @@ def test():
     tides = load_tides(file,parser,start,end) + 0.25
 
     # Calculate Mean High Water
-#    pressure = tides.as_matrix()
-#    MW = np.mean(tides)
-#    HW = pressure[argrelextrema(pressure, np.greater)[0]]
-#    LW = pressure[argrelextrema(pressure, np.less)[0]]
-#    MHW = np.mean(HW)
-#    MLW = np.mean(LW)
+    pressure = tides.as_matrix()
+    MW = np.mean(tides)
+    HW = pressure[argrelextrema(pressure, np.greater)[0]]
+    LW = pressure[argrelextrema(pressure, np.less)[0]]
+    MHW = np.mean(HW)
+    MLW = np.mean(LW)
 
     X = 500 # X size of polder
     Y = 300 # Y size of polder
@@ -343,3 +384,13 @@ def test():
                  max_wealth=max_wealth, max_profit = max_profit,
                  border_height = 0.5, amplitude = 1.5, noise = 0.05)
     pdr.add_breach(breachX, breachY, time)
+    
+    if elevation_cube is None:
+        for i in range(pdr.time_horizon): pdr.aggrade(tides, ws, rho, SSC, dP, dO, i + 1)
+        elevation_cube = pdr.elevation_cube.copy()
+    else:
+        pdr.elevation_cube = elevation_cube.copy()
+        pdr.elevation = elevation_cube[0].copy()
+    
+    for hh in pdr.households: hh.discount = 0.25
+    ecc = pdr.calc_eu_series(MHW, 2.0, MW, 1.0, 5)
