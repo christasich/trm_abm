@@ -85,12 +85,12 @@ class household(object):
     #==========================================================================
     # EXTRACT A RECTANGULAR SECTION THROUGH A CUBE AND COLLAPSE
     #==========================================================================
-    
+
     # Given a cube dc[z,y,x], extract a rectangula prism in (x,y), that extends
     # through all z-values, then ravel the x and y dimensions to produce a
     # 2D array with rows = z and columns = raveled x,y.
 
-    @staticmethod    
+    @staticmethod
     def extract_and_collapse(dc, p):
         x = dc[:,p[2]:p[3],p[0]:p[1]]
         x = x.reshape((x.shape[0], x.shape[1] * x.shape[2]))
@@ -108,15 +108,17 @@ class breach(object):
         self.dist = np.hypot(delta_x, delta_y)
         self.scaled_dist = self.dist / 1000. + 1.
         self.A = 0.0
-        
+
 
 class polder(object):
-    def __init__(self, x, y, 
+    def __init__(self, x, y,
                  time_horizon,
-                 border_height = 1.0,
-                 n_households = 0, 
+                 n_households = 0,
                  max_wealth = 1.0E4, max_profit = 100.,
-                 gini = 0.3):
+                 gini = 0.3,
+                 border_height = 1.0,
+                 amplitude = 1.5,
+                 noise = 0.05):
         self.width = x
         self.height = y
         self.border_height = border_height
@@ -127,19 +129,19 @@ class polder(object):
         self.current_period = 0
         self.plots = np.zeros(shape = (0,5), dtype = np.integer)
         self.breaches = []
-        self.initialize_elevation()
+        self.initialize_elevation(border_height = border_height,
+                                  amplitude = amplitude, noise = noise)
         self.initialize_hh(n_households)
 
-    def initialize_elevation(self, noise = 0.1):
+    def initialize_elevation(self, border_height = None, amplitude = 1.0, noise = 0.05):
+        if border_height is None:
+            border_height = self.border_height
         wx = np.pi / self.width
         wy = np.pi / self.height
-        self.elevation = self.border_height * \
-            ( \
-             (1.0 - \
-               np.outer(np.sin(np.arange(self.height) * wy),
-                        np.sin(np.arange(self.width) * wx))) + \
-              noise * np.random.normal(0.0, 1.0, (self.height, self.width)) \
-            )
+        self.elevation = border_height - amplitude * \
+              np.outer(np.sin(np.arange(self.height) * wy),
+                        np.sin(np.arange(self.width) * wx)) + \
+              noise * np.random.normal(0.0, 1.0, (self.height, self.width))
         self.elevation_cube = np.zeros((self.time_horizon + 1, self.height, self.width))
         self.elevation_cube[0] = self.elevation
         self.current_period = 0
@@ -212,7 +214,7 @@ class polder(object):
                    ), \
                  axis = 1)
         return plots
-        
+
 
     def build_plots(self, weights, n_boxes = 10):
         n = weights.size / n_boxes
@@ -236,9 +238,9 @@ class polder(object):
 #        self.grid = grid.copy()
 #        self.w_list = w_list
 #        self.grid_weights = grid_weights
-        
+
         cum_len = np.cumsum( np.concatenate( (np.zeros((1,)), [len(ww) for ww in w_list[:-1]]) ) )
-        
+
         plot_list = [ self.build_subplots(w_list[i], \
                           grid[i,0], grid[i,1], grid[i,2], grid[i,3],
                           ix0 = cum_len[i]) \
@@ -275,11 +277,11 @@ class polder(object):
     def calc_eu(self):
         eu = [hh.utility(self.profit) for hh in self.households]
         return eu
-    
+
     def add_breach(self, breach_x, breach_y, duration):
         self.breach_duration = duration,
         self.breaches.append(breach(self, breach_x, breach_y, self.border_height))
-    
+
     def aggrade(self, heads, ws, rho, SSC, dP, dO, period = -1):
         if period < 0:
             period = self.current_period + 1
@@ -300,14 +302,14 @@ def test():
     global SSC
     global dP
     global dO
-    
+
     file = '../data/p32_tides.dat'
     parser = lambda x: pd.datetime.strptime(x, '%d-%b-%Y %H:%M:%S')
     start = pd.datetime(2015,5,15,1)
     end = pd.datetime(2016,5,14,1)
-    
+
     tides = load_tides(file,parser,start,end) + 0.25
-    
+
     # Calculate Mean High Water
 #    pressure = tides.as_matrix()
 #    MW = np.mean(tides)
@@ -315,27 +317,29 @@ def test():
 #    LW = pressure[argrelextrema(pressure, np.less)[0]]
 #    MHW = np.mean(HW)
 #    MLW = np.mean(LW)
-    
+
     X = 500 # X size of polder
     Y = 300 # Y size of polder
     year = 8759 # hours in a year
     N = 100 # number of households
-    
+
     # Initialize dataframe of household paramters
     max_wealth = 10000 # initial max wealth in Taka
-    max_profit = 100 # max profit per 1 m^2 land in Taka    
-    
+    max_profit = 100 # max profit per 1 m^2 land in Taka
+
     time = 10 # in years
     gs = 0.03 # grain size in m
     ws = ((gs/1000)**2*1650*9.8)/0.018 # settling velocity calculated using Stoke's Law
     rho = 700 # dry bulk density in kg/m^2
-    SSC = 0.4 # suspended sediment concentration in g/L
+    SSC = 0.4 / 4.0 # suspended sediment concentration in g/L
     dP = 0 # compaction
     dO = 0 # organic matter deposition
-    
+
     # breach coordinates on polder
     breachX = 0
     breachY = Y/2
 
-    pdr = polder(x = X, y = Y, time_horizon= time, n_households = N, max_wealth=max_wealth, max_profit = max_profit)
+    pdr = polder(x = X, y = Y, time_horizon= time, n_households = N,
+                 max_wealth=max_wealth, max_profit = max_profit,
+                 border_height = 0.5, amplitude = 1.5, noise = 0.05)
     pdr.add_breach(breachX, breachY, time)
