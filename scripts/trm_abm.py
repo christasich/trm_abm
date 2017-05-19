@@ -13,6 +13,7 @@ import numpy.ma as ma
 import pandas as pd
 import squarify as sq
 from scipy.signal import argrelextrema
+import time
 # from itertools import izip, count
 # from scipy import ndimage
 
@@ -31,10 +32,10 @@ def load_tides(file,parser,start,end):
 # CHANGE IN ELEVATION
 #==============================================================================
 
-def  aggrade_patches(heads,time,ws,rho,SSC,dP,dO,z0, z_breach):
+def  aggrade_patches(heads,times,ws,rho,SSC,dP,dO,z0, z_breach):
     z = z0.copy()
     C_last = np.zeros_like(z0)
-    dt = float((time[1]-time[0]).seconds)
+    dt = float((times[1]-times[0]).seconds)
     delta_h = (heads.values[1:] - heads.values[:-1])
     for h, dh in zip(heads[1:], delta_h):
         if h > z_breach:
@@ -66,22 +67,156 @@ def logit(z,k,mid):
 # DEFINE CLASSES
 #==============================================================================
 
+class election(object):
+    def __init__(self, households):
+        self.households = households
+
+    def vote(self):
+        ballots = np.array( [ np.array(hh.vote(), dtype = np.integer) \
+                  for hh in self.households ] )
+        winner = election.instant_runoff(ballots)
+        return winner
+
+    @staticmethod
+    def instant_runoff(ballots):
+        majority = ballots.shape[0] * 0.5
+        n_choices = ballots.shape[1]
+        ballots = pd.DataFrame(ballots)
+        vc = ballots[0].value_counts()
+        while vc.iloc[0] <= majority:
+            vc = ballots[n_choices - 1].value_counts()
+            eliminate = vc.index[0]
+            blist = [ list(x) for x in list(np.array(ballots)) ]
+            for b in blist: b.remove(eliminate)
+            ballots = pd.DataFrame(np.array(blist, dtype = np.integer))
+            n_choices = ballots.shape[1]
+            vc = ballots[0].value_counts()
+        return vc.index[0]
+
+class transaction(object):
+    def __init__(self, buyer, seller, year, price):
+        self.buyer = buyer
+        self.seller = seller
+        self.year = year
+        self.price = price
+
+    def buyer_id(self):
+        return self.buyer.id
+
+    def seller_id(self):
+        return self.seller.id
+
+class auction(object):
+    def init__(self, households):
+        self.households = households.sorted(key = lambda hh: hh.id)
+        self.transactions = []
+        self.ballots = None
+        assert(range(len(self.households)) == [hh.id for hh in self.households])
+        self.initialize_votes()
+
+    def vote(self):
+        if self.ballots is None:
+            return None
+        majority = 0.5 * self.ballots.shape[0]
+        votes = pd.DataFrame(self.ballots)[0].value_counts()
+        if votes.iloc[0] > majority:
+            return votes.index[0]
+        return None
+
+    def initialize_votes(self):
+        self.ballots = np.array( [ np.array(hh.vote(), dtype = np.integer) \
+          for hh in self.households ] )
+        self.transactions = []
+
+    def auction(self, max_rounds = 1000):
+        self.initialize_votes()
+        for round in range(max_rounds):
+            winner = self.vote()
+            if winner is not None:
+                return winner
+            buyers  = [trans.buyer for trans in self.transactions]
+            sellers = [trans.seller for trans in self.transactions]
+            neutral = [ hh for hh in self.households if hh not in (buyers + sellers) ]
+            for hh in neutral:
+                hh.construct_bids()
+            for hh in buyers:
+                hh.construct_bids(self.transactions[self.transactions.buyer == hh])
+            bids = pd.concat([hh.bids for hh in neutral + buyers])
+            transactions = self.bidding_round(bids)
+            for trans in transactions:
+                trans.buyer.wealth -= trans.price
+                trans.seller.wealth += trans.price
+                self.ballots[trans.seller] = trans.year
+            self.transactions = self.transactions + transactions
+        return self.vote()
+
+    def bidding_round(self,bids):
+        transactions = []
+        wta = bids[['id', 'year','accept']].pivot(index = 'id', columns = 'year', values = 'accept')
+        wtp = bids[['id', 'year','offer']].pivot(index = 'id', columns = 'year', values = 'offer')
+        ids = [ hh.id for hh in self.households]
+        for i in range(100):
+            buyer_candidates = np.random.choice(ids, len(ids / 2), replace = False)
+            seller_candidates = ids[ids not in buyer_candidates]
+            length = min(len(buyer_candidates, seller_candidates))
+            seller_candidates = np.random.choice(seller_candidates, length, replace = False)
+            pairs = pd.DataFrame({'buyer':buyer_candidates, 'seller':seller_candidates,
+                                  'year':np.random.choice(wta.year, length, replace = True)})
+            for i, p in pairs.itertuples():
+                offer = wtp.offer[wtp.id == p.buyer and year == p.year]
+                accept = wta.accept[wta.id == p.seller and year == p.year]
+                if  offer >= accept:
+                    price = (offer + accept) / 2.0
+                    hh = next(hh for hh in self.households if hh.id == p.buyer)
+                    if hh.wealth >= price:
+                        transactions.append(pd.DataFrame({'buyer':p.buyer, 'seller':p.seller, \
+                                                          'year':p.year, 'price':price}))
+                        ids.remove(p.buyer)
+                        ids.remove(p.seller)
+            if len(ids) == 0:
+                break
+        return transactions
+
 class household(object):
-    def __init__(self, id, wealth = 0, plots = None, discount = 0.03):
+    def __init__(self, id, wealth = 0, plots = None, discount = 0.03, eu_df = None):
         self.id = id
         self.wealth = wealth
         self.discount = discount
+        self.eu_df = eu_df
         if plots is None:
             self.plots = np.zeros((0,5), dtype=np.integer)
         else:
             self.plots = np.array(plots, dtype=np.integer)
 
     def utility(self, profit_dc):
-        own_patches_profit = np.concatenate([ household.extract_and_collapse(profit_dc, p) for p in self.plots ],
+        own_patches_profit = np.concatenate([ household.extract_and_collapse(profit_dc, p) \
+                                             for p in self.plots ],
                                       axis = 0)
         profit = np.sum(own_patches_profit, axis = 0)
         eu = self.wealth + np.sum(profit * np.exp(- self.discount * np.arange(len(profit))))
         return eu
+
+    def set_eu(self, eu_df):
+        self.eu_df = eu_df.sort_values('eu', ascending = False)
+
+    def construct_bids(self, purchases = []):
+        bid_scale = 2.0
+        assert(self.eu_df is not None)
+        favorite = self.eu_df.iloc[0]
+        self.bids = pd.DataFrame({ \
+                  'id': self.id,
+                  'year':self.eu_df.year,
+                  'accept':(self.eu_df.eu - favorite.eu) * np.random.uniform(1.0, bid_scale),
+                  'offer':(favorite.eu - self.eu_df.eu) / np.random.uniform(1.0, bid_scale)\
+                  })
+        self.bids.offer = self.bids.offer.clip(None, self.wealth)
+        self.bids = self.bids[self.bids.year != favorite.year]
+        if (len(purchases) > 0):
+            self.bids = self.bids[ self.bids.year == self.purchases[0].year]
+            self.bids.accept = np.inf
+
+    def vote(self):
+        return self.eu_df.year.copy()
 
     #==========================================================================
     # EXTRACT A RECTANGULAR SECTION THROUGH A CUBE AND COLLAPSE
@@ -290,7 +425,13 @@ class polder(object):
                 eu[i,j] = hh_eu[self.owners[i,j]]
         if save:
             self.eu = eu.copy()
-        return eu
+        return (eu, hh_eu)
+
+    def set_hh_eu(self, eu_array):
+        n_years = eu_array.shape[0]
+        for i in range(len(self.households)):
+            df = pd.DataFrame({'year':range(n_years), 'eu':eu_array[:,i].copy()})
+            self.households[i].set_eu(df)
 
     def calc_eu_series(self, trm_water_level, trm_k, wl_water_level, wl_k, horizon = None, elevation_cube = None, save = True):
         if horizon is None:
@@ -300,15 +441,18 @@ class polder(object):
         eu_cube = np.zeros((horizon , self.elevation.shape[0], self.elevation.shape[1]), np.double)
         ec0 = elevation_cube[:horizon+1].copy()
         profit = np.zeros_like(ec0, np.double)
+        hh_eu_array = np.zeros((horizon, len(self.households)))
         for i in range(horizon):
             ec = ec0.copy()
             for j in range(i+1,horizon+1):
                 ec[j] = ec[i]
             profit[:i] = self.calc_profit(trm_water_level, trm_k, ec[:i], False)
             profit[i:] = self.calc_profit(wl_water_level, wl_k, ec[i:], False)
-            eu = self.calc_eu(profit, False)
+            eu, hh_eu = self.calc_eu(profit, False)
             eu_cube[i] = eu
+            hh_eu_array[i] = hh_eu
         self.eu_cube = eu_cube.copy()
+        self.set_hh_eu(hh_eu_array)
         return eu_cube
 
     def add_breach(self, breach_x, breach_y, duration):
@@ -328,7 +472,7 @@ class polder(object):
         self.current_period = period
 
 
-def test(elevation_cube = None):
+def test(ec = None):
     global pdr
     global tides
     global ws
@@ -368,7 +512,7 @@ def test(elevation_cube = None):
     max_wealth = 10000 # initial max wealth in Taka
     max_profit = 100 # max profit per 1 m^2 land in Taka
 
-    time = 10 # in years
+    t = 10 # in years
     gs = 0.03 # grain size in m
     ws = ((gs/1000)**2*1650*9.8)/0.018 # settling velocity calculated using Stoke's Law
     rho = 700 # dry bulk density in kg/m^2
@@ -380,17 +524,23 @@ def test(elevation_cube = None):
     breachX = 0
     breachY = Y/2
 
-    pdr = polder(x = X, y = Y, time_horizon= time, n_households = N,
+    pdr = polder(x = X, y = Y, time_horizon= t, n_households = N,
                  max_wealth=max_wealth, max_profit = max_profit,
                  border_height = 0.5, amplitude = 1.5, noise = 0.05)
-    pdr.add_breach(breachX, breachY, time)
-    
-    if elevation_cube is None:
-        for i in range(pdr.time_horizon): pdr.aggrade(tides, ws, rho, SSC, dP, dO, i + 1)
+    pdr.add_breach(breachX, breachY, t)
+
+    if ec is None:
+        t0 = time.time()
+        t1 = t0
+        for i in range(pdr.time_horizon):
+            pdr.aggrade(tides, ws, rho, SSC, dP, dO, i + 1)
+            t2 = time.time()
+            print ("%2d: %.02f, %.02f" % (i, float(t2 - t1), float(t2 - t0)))
+            t1 = t2
         elevation_cube = pdr.elevation_cube.copy()
     else:
-        pdr.elevation_cube = elevation_cube.copy()
-        pdr.elevation = elevation_cube[0].copy()
-    
+        pdr.elevation_cube = ec.copy()
+        pdr.elevation = ec[0].copy()
+
     for hh in pdr.households: hh.discount = 0.25
     ecc = pdr.calc_eu_series(MHW, 2.0, MW, 1.0, 5)
