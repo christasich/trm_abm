@@ -77,6 +77,12 @@ class election(object):
         u = dict( [ (hh.id, hh.eu_df.eu.loc[index]) for hh in self.households.values() ] )
         return(u)
 
+    def count_unhappy(self, index):
+        utilities = self.utility(index)
+        baseline = dict( [ (hh.id, hh.eu_df.eu.iloc[0]) for hh in self.households.values() ] )
+        n = sum([ baseline[hh_id] > utilities[hh.id] for hh_id in utilities.keys() ])
+        return n
+
     def vote(self):
         ballots = np.array( [ np.array(hh.vote(), dtype = np.integer) \
                   for hh in self.households.values() ] )
@@ -127,6 +133,12 @@ class auction(object):
             u[t.seller_id()] += t.price
         return(u)
 
+    def count_unhappy(self, index):
+        utilities = self.utility(index)
+        baseline = dict( [ (hh.id, hh.eu_df.eu.iloc[0]) for hh in self.households.values() ] )
+        n = sum([ baseline[hh_id] > utilities[hh.id] for hh_id in utilities.keys() ])
+        return n
+
     def vote(self, force = False):
         if self.ballots is None:
             return None
@@ -162,18 +174,19 @@ class auction(object):
             for hh in neutral:
                 hh.construct_bids(target)
             for hh in buyers:
-                hh.construct_bids(target, self.transactions[self.transactions.buyer == hh])
+                purchases = [ t for t in self.transactions if t.buyer_id() == hh.id ]
+                hh.construct_bids(target, purchases)
             bids = pd.concat([hh.bids for hh in neutral + buyers])
             bbids = bids.copy()
             transactions = self.bidding_round(bids)
-            tt = transactions.copy()
-            for trans in transactions.itertuples():
+            tt = transactions
+            for trans in transactions:
                 trans.buyer.wealth -= trans.price
                 trans.seller.wealth += trans.price
-                self.ballots[trans.seller] = trans.year
-            if transactions.shape[0] > 0:
-                print transactions.shape[0], " Transactions"
-                self.transactions.append(transactions)
+                self.ballots[trans.seller_id()] = trans.year
+            if len(transactions) > 0:
+                print len(transactions), " Transactions"
+                self.transactions += transactions
             else:
                 print "No transactions"
                 break
@@ -182,45 +195,56 @@ class auction(object):
 
     def bidding_round(self,bids):
         global pp, wtpp, wtaa, p0, bcc, scc
-        transactions = pd.DataFrame(index = [], columns = ['buyer', 'seller', 'year', 'price'])
+        transactions = []
         wta = bids[np.logical_not(bids.is_offer.values)][['id', 'year','amount']]
         wtp = bids[bids.is_offer.values][['id', 'year','amount']]
+        wtpp = wtp.copy()
+        wtaa = wta.copy()
+        # wta = wta.drop_duplicates(inplace = True)
+        # wtp = wtp.drop_duplicates(inplace = True)
+        if wta is None or wta.shape[0] < 2:
+            print "Empty wta"
+            return transactions
+        if wtp is None or wtp.shape[0] < 2:
+            print "Empty wtp"
+            return transactions
         wta = wta.pivot(index = 'id', columns = 'year', values = 'amount')
         wtp = wtp.pivot(index = 'id', columns = 'year', values = 'amount')
         wtpp = wtp.copy()
         wtaa = wta.copy()
         wta_min = wta.min()
         wtp_max = wtp.max()
-        ids = self.households.keys()
-        for i in range(100):
-            buyer_candidates = np.random.choice(wtp.index,  wtp.shape[0] / 2, replace = False)
-            seller_candidates = list(set(wta.index) - set(buyer_candidates))
-            seller_candidates = np.random.choice(seller_candidates,  \
-                                 min(len(seller_candidates), len(buyer_candidates)), replace = False)
-            length = min(len(buyer_candidates), len(seller_candidates))
-            buyer_candidates = np.random.choice(buyer_candidates, length, replace = False)
-            seller_candidates = np.random.choice(seller_candidates, length, replace = False)
-            bcc = buyer_candidates.copy()
-            scc = seller_candidates.copy()
-            pairs = pd.DataFrame({'buyer':buyer_candidates, 'seller':seller_candidates,
-                                  'year':np.random.choice(wta.shape[1], length, replace = True)})
-            pp = pairs.copy()
-            print pairs.shape[0], " pairs"
-            for p in pairs.itertuples():
-                p0 = p
-                offer = wtp.loc[p.buyer][p.year]
-                accept = wta.loc[p.seller][p.year]
-                print "Year ", p.year, ": ", p.buyer, " offers ", offer, " and ", p.seller, " will accept ", accept
+        for buyer_index in np.random.choice(wtp.index, wtp.shape[0], replace = False):
+            buyer = wtp.loc[buyer_index]
+            buyer_year = buyer[np.logical_not(buyer.isnull())]
+            offer = buyer_year.values[0]
+            seller_candidates = wta[buyer_year.index]
+            seller_candidates = seller_candidates[np.logical_not(pd.isnull(seller_candidates.values))]
+            seller_candidates = seller_candidates[seller_candidates.values <= offer]
+            if seller_candidates.shape[0] > 0:
+                print "Year ", buyer_year.index[0], ": ", buyer.index[0], " offers ", offer
+                print "     seller_candidates has shape ", seller_candidates.shape
+                seller_index = np.random.choice(seller_candidates.index, 1)[0]
+                seller = seller_candidates.loc[seller_index]
+                accept = seller.values[0]
+                print "Year ", buyer_year.index[0], ": ", buyer.index[0], " offers ", offer, " and ", \
+                    seller.index[0], " will accept ", accept
                 if  offer >= accept:
                     price = (offer + accept) / 2.0
+                    print "Offer accepted: price = ", price
                     if True: # self.households[p.buyer].wealth >= price:
-                        df = pd.DataFrame({'buyer':(p.buyer,), 'seller':(p.seller,), \
-                                                          'year':(p.year,), 'price':(price,)})
-                        transactions.append(df)
-                        wtp.drop(p.buyer, inplace = True)
-                        wta.drop(p.seller, inplace = True)
-            if len(ids) == 0:
+                        print buyer_index, seller_index
+                        bh = self.households[buyer_index]
+                        sh = self.households[seller_index]
+                        tx = transaction(bh, sh, buyer_year.index, price)
+                        transactions.append(tx)
+                        wtp.drop(buyer_index, inplace = True)
+                        wta.drop(seller_index, inplace = True)
+                else:
+                    print "Offer rejected."
+            if wta.shape[0] == 0 or wtp.shape[0] == 0:
                 break
+        print len(transactions), " transactions."
         return transactions
 
 class household(object):
@@ -572,6 +596,7 @@ def test(ec = None):
     global MLW
     global elevation_cube
     global euc
+    global profit
 
     file = '../data/p32_tides.dat'
     parser = lambda x: pd.datetime.strptime(x, '%d-%b-%Y %H:%M:%S')
@@ -628,12 +653,91 @@ def test(ec = None):
         pdr.elevation = ec[0].copy()
 
     calc_trm(pdr, 0.15, 4, trm_k = 5.0)
+    trm_profit = pdr.calc_profit(MHW, 5.0, elevation_cube, False)
+    wl_profit = pdr.calc_profit(MW, 1.0, elevation_cube, False)
 
 import pickle
 
 elevation_cube = pickle.load(open('elevation_cube.pickle', 'rb'))
+plt.ioff()
 test(elevation_cube)
+
+plt.draw()
+plt.ion()
+plt.figure()
 
 a = auction(pdr.households)
 a_res = a.auction()
 
+v = election(pdr.households)
+v_res = v.vote()
+
+def save_images(folder = "csdms_figures", euc = None, ec = None, wl_profit = None, trm_profit = None, note = None):
+    plt.ioff()
+    if euc is not None:
+        d_euc = euc[1:] - euc[0]
+        dem = max(d_euc.max(), -d_euc.min())
+        for i in range(d_euc.shape[0]):
+            plt.figure();
+            plt.imshow(d_euc[i], "seismic_r", vmin = -dem, vmax = dem)
+            plt.axis("off")
+            cbar = plt.colorbar()
+            cbar.set_label("Net present value")
+            plt.draw()
+            if note is not None:
+                caption = "polder_%02d_du_%s.png" % (i, note)
+            else:
+                caption = "polder_%02d_du.png" % i
+            plt.savefig(os.path.join(folder, caption), dpi = 300)
+    if ec is not None:
+        el_min = ec.min()
+        el_max = ec.min()
+        scale = max(el_max - MW, MW - el_min)
+        for i in range(ec.shape[0]):
+            plt.figure();
+            plt.imshow(ec[i], "terrain", vmin = MW - scale, vmax = MW + scale)
+            plt.axis("off")
+            cbar = plt.colorbar()
+            cbar.set_label("Elevation (m) rel. MW")
+            plt.draw()
+            if note is not None:
+                caption = "polder_%02d_elev_%s.png" % (i, note)
+            else:
+                caption = "polder_%02d_elev.png" % i
+            plt.savefig(os.path.join(folder, caption), dpi = 300)
+    if wl_profit is None:
+        pmax = 0.0
+    else:
+        pmax = wl_profit.max()
+    if trm_profit is not None:
+        pmax = max(pmax, trm_profit.max())
+
+    if wl_profit is not None:
+        # pmax = max(wl_profit)
+        for i in range(wl_profit.shape[0]):
+            plt.figure();
+            plt.imshow(wl_profit[i], "plasma", vmin = 0, vmax = pmax)
+            plt.axis("off")
+            cbar = plt.colorbar()
+            cbar.set_label("Profit")
+            plt.draw()
+            if note is not None:
+                caption = "polder_%02d_wl_profit_%s.png" % (i, note)
+            else:
+                caption = "polder_%02d_wl_profit.png" % i
+            plt.savefig(os.path.join(folder, caption), dpi = 300)
+    if trm_profit is not None:
+        # pmax = max(wl_profit)
+        for i in range(trm_profit.shape[0]):
+            plt.figure();
+            plt.imshow(trm_profit[i], "plasma", vmin = 0, vmax = pmax)
+            plt.axis("off")
+            cbar = plt.colorbar()
+            cbar.set_label("Profit")
+            plt.draw()
+            if note is not None:
+                caption = "polder_%02d_trm_profit_%s.png" % (i, note)
+            else:
+                caption = "polder_%02d_trm_profit.png" % i
+            plt.savefig(os.path.join(folder, caption), dpi = 300)
+    plt.ion()
