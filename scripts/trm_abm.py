@@ -14,6 +14,7 @@ import pandas as pd
 import squarify as sq
 from scipy.signal import argrelextrema
 import time
+# import pdb
 # from itertools import izip, count
 # from scipy import ndimage
 
@@ -68,12 +69,12 @@ def logit(z,k,mid):
 #==============================================================================
 
 class election(object):
-    def __init__(self, households):
-        self.households = households
+    def __init__(self, hh_dict):
+        self.households = hh_dict
 
     def vote(self):
         ballots = np.array( [ np.array(hh.vote(), dtype = np.integer) \
-                  for hh in self.households ] )
+                  for hh in self.households.values() ] )
         winner = election.instant_runoff(ballots)
         return winner
 
@@ -107,11 +108,10 @@ class transaction(object):
         return self.seller.id
 
 class auction(object):
-    def init__(self, households):
-        self.households = households.sorted(key = lambda hh: hh.id)
+    def init__(self, hh_dict):
+        self.households = hh_dict
         self.transactions = []
         self.ballots = None
-        assert(range(len(self.households)) == [hh.id for hh in self.households])
         self.initialize_votes()
 
     def vote(self):
@@ -125,7 +125,7 @@ class auction(object):
 
     def initialize_votes(self):
         self.ballots = np.array( [ np.array(hh.vote(), dtype = np.integer) \
-          for hh in self.households ] )
+          for hh in self.households.values() ] )
         self.transactions = []
 
     def auction(self, max_rounds = 1000):
@@ -151,14 +151,14 @@ class auction(object):
         return self.vote()
 
     def bidding_round(self,bids):
-        transactions = []
+        transactions = np.DataFrame(index = [], columns = ['buyer', 'seller', 'year', 'price'])
         wta = bids[['id', 'year','accept']].pivot(index = 'id', columns = 'year', values = 'accept')
         wtp = bids[['id', 'year','offer']].pivot(index = 'id', columns = 'year', values = 'offer')
-        ids = [ hh.id for hh in self.households]
+        ids = self.households.keys()
         for i in range(100):
             buyer_candidates = np.random.choice(ids, len(ids / 2), replace = False)
-            seller_candidates = ids[ids not in buyer_candidates]
-            length = min(len(buyer_candidates, seller_candidates))
+            seller_candidates = list(set(ids) - set(buyer_candidates))
+            length = min(len(buyer_candidates), len(seller_candidates))
             seller_candidates = np.random.choice(seller_candidates, length, replace = False)
             pairs = pd.DataFrame({'buyer':buyer_candidates, 'seller':seller_candidates,
                                   'year':np.random.choice(wta.year, length, replace = True)})
@@ -167,8 +167,7 @@ class auction(object):
                 accept = wta.accept[wta.id == p.seller and year == p.year]
                 if  offer >= accept:
                     price = (offer + accept) / 2.0
-                    hh = next(hh for hh in self.households if hh.id == p.buyer)
-                    if hh.wealth >= price:
+                    if self.households[p.buyer].wealth >= price:
                         transactions.append(pd.DataFrame({'buyer':p.buyer, 'seller':p.seller, \
                                                           'year':p.year, 'price':price}))
                         ids.remove(p.buyer)
@@ -183,6 +182,7 @@ class household(object):
         self.wealth = wealth
         self.discount = discount
         self.eu_df = eu_df
+        self.bids = pd.DataFrame(index = [], columns = ['id', 'year', 'is_offer', 'amount'])
         if plots is None:
             self.plots = np.zeros((0,5), dtype=np.integer)
         else:
@@ -203,17 +203,26 @@ class household(object):
         bid_scale = 2.0
         assert(self.eu_df is not None)
         favorite = self.eu_df.iloc[0]
-        self.bids = pd.DataFrame({ \
+        others = self.eu_df.iloc[1:]
+
+        sell_bids = pd.DataFrame({ \
                   'id': self.id,
-                  'year':self.eu_df.year,
-                  'accept':(self.eu_df.eu - favorite.eu) * np.random.uniform(1.0, bid_scale),
-                  'offer':(favorite.eu - self.eu_df.eu) / np.random.uniform(1.0, bid_scale)\
+                  'year':self.others.year,
+                  'is_offer':False,
+                  'amount':(favorite.eu - others.eu) * np.random.uniform(1.0, bid_scale),
                   })
-        self.bids.offer = self.bids.offer.clip(None, self.wealth)
-        self.bids = self.bids[self.bids.year != favorite.year]
+        buy_bids = self.bids.pd.DataFrame({ \
+                  'id': self.id,
+                  'year':self.others.year,
+                  'is_offer':True,
+                  'amount':(favorite.eu - others.eu) / np.random.uniform(1.0, bid_scale)\
+                  })
+        buy_bids.offer = buy_bids.offer.clip(None, self.wealth)
         if (len(purchases) > 0):
-            self.bids = self.bids[ self.bids.year == self.purchases[0].year]
-            self.bids.accept = np.inf
+            self.bids = buy_bids[ buy_bids.year == purchases[0].year]
+        else:
+            self.bids = np.concatenate([buy_bids, sell_bids])
+        self.bids = self.bids[self.bids.amount > 0.0]
 
     def vote(self):
         return self.eu_df.year.copy()
@@ -295,21 +304,25 @@ class polder(object):
 
     def initialize_hh(self, n_households):
         self.owners = np.zeros_like(self.elevation, dtype = np.integer)
-        self.households = []
+        self.households = dict()
         if n_households > 0:
             self.build_households(n_households)
             self.owners.fill(-1)
-            for hh in self.households:
+            for hh in self.households.values():
                 for p in hh.plots:
                     self.owners[p[1]:(p[1]+p[3]),p[0]:(p[0]+p[2])] = hh.id
 
     def initialize_hh_from_plots(self, n_households):
         assert max(self.owners) < n_households
-        self.households = [household(id = i) for i in range(n_households)]
+        self.households = dict([(i, household(id = i)) for i in range(n_households)])
         self.set_hh_plots()
 
     def set_households(self, households):
-        self.households = households
+        if isinstance(households, dict):
+            self.households = households
+        else:
+            # list of households
+            self.households = dict((hh.id, hh) for hh in households)
         self.owners = np.zeros_like(self.elevation, dtype = np.integer)
         self.set_owners_wealth()
 
@@ -322,15 +335,17 @@ class polder(object):
 
     def set_owners_wealth(self):
         self.owners.fill(-1.0)
-        for hh in self.households:
+        for hh in self.households.values():
             for p in hh.plots:
                 self.owners[p[1]:(p[1]+p[3]),p[0]:(p[0]+p[2])] = hh.id
             self.set_hh_wealth(hh)
 
     def set_hh_plots(self):
-        for hh in self.households:
-            plots = self.plots[self.plots[:,4] == hh.id]
-            hh.plots = plots
+        for hh in self.households.values():
+            hh.plots = []
+        for i in range(self.plots.shape[0]):
+            hh = self.households[self.plots[i,4]]
+            hh.plots.append(self.plots[i,:4])
         self.set_owners_wealth()
 
     @staticmethod
@@ -350,7 +365,6 @@ class polder(object):
                    ), \
                  axis = 1)
         return plots
-
 
     def build_plots(self, weights, n_boxes = 10):
         n = weights.size / n_boxes
@@ -388,7 +402,7 @@ class polder(object):
     def build_households(self, n = None, gini = 0.3):
         if n is not None and n != len(self.households):
             print "Initializing", n, "households"
-            self.households = [household(id = i) for i in range(n)]
+            self.households = dict([(i, household(id = i)) for i in range(n)])
         else:
             print "n = ", type(n), ", ", n, ", length = ", len(self.households)
         if isinstance(gini, dict):
@@ -418,7 +432,7 @@ class polder(object):
     def calc_eu(self, profit_cube = None, save = True):
         if profit_cube is None:
             profit_cube = self.profit.copy()
-        hh_eu = [hh.utility(profit_cube) for hh in self.households]
+        hh_eu = dict([(hh.id, hh.utility(profit_cube)) for hh in self.households.values()])
         eu = np.zeros_like(self.owners, np.double)
         for i in range(eu.shape[0]):
             for j in range(eu.shape[1]):
@@ -427,11 +441,21 @@ class polder(object):
             self.eu = eu.copy()
         return (eu, hh_eu)
 
-    def set_hh_eu(self, eu_array):
+    def set_hh_eu(self, ids, eu_array):
         n_years = eu_array.shape[0]
-        for i in range(len(self.households)):
-            df = pd.DataFrame({'year':range(n_years), 'eu':eu_array[:,i].copy()})
-            self.households[i].set_eu(df)
+        for i, hh_id in enumerate(ids):
+            df = pd.DataFrame({'year':range(n_years), 'eu':eu_array[:,i]})
+            self.households[hh_id].set_eu(df)
+
+    def calc_eu_slice(self, trm_water_level, trm_k, wl_water_level, wl_k, ec, horizon, duration):
+            ec1 = ec.copy()
+            profit = np.zeros_like(ec, np.double)
+            for j in range(duration + 1, horizon + 1):
+                ec1[j] = ec1[duration]
+            profit[:duration] = self.calc_profit(trm_water_level, trm_k, ec1[:duration], False)
+            profit[duration:] = self.calc_profit(wl_water_level, wl_k, ec1[duration:], False)
+            eu, hh_eu = self.calc_eu(profit, False)
+            return(eu, hh_eu)
 
     def calc_eu_series(self, trm_water_level, trm_k, wl_water_level, wl_k, horizon = None, elevation_cube = None, save = True):
         if horizon is None:
@@ -440,19 +464,14 @@ class polder(object):
             elevation_cube = self.elevation_cube
         eu_cube = np.zeros((horizon , self.elevation.shape[0], self.elevation.shape[1]), np.double)
         ec0 = elevation_cube[:horizon+1].copy()
-        profit = np.zeros_like(ec0, np.double)
         hh_eu_array = np.zeros((horizon, len(self.households)))
+        hh_id_list = self.households.keys()
         for i in range(horizon):
-            ec = ec0.copy()
-            for j in range(i+1,horizon+1):
-                ec[j] = ec[i]
-            profit[:i] = self.calc_profit(trm_water_level, trm_k, ec[:i], False)
-            profit[i:] = self.calc_profit(wl_water_level, wl_k, ec[i:], False)
-            eu, hh_eu = self.calc_eu(profit, False)
-            eu_cube[i] = eu
-            hh_eu_array[i] = hh_eu
+            eu, hh_eu = self.calc_eu_slice(trm_water_level, trm_k, wl_water_level, wl_k, ec0, horizon, i)
+            eu_cube[i] = eu.copy()
+            hh_eu_array[i] = [hh_eu[hh_id].copy() for hh_id in hh_id_list]
         self.eu_cube = eu_cube.copy()
-        self.set_hh_eu(hh_eu_array)
+        self.set_hh_eu(hh_id_list, hh_eu_array)
         return eu_cube
 
     def add_breach(self, breach_x, breach_y, duration):
@@ -486,7 +505,7 @@ def test(ec = None):
     global MHW
     global MLW
     global elevation_cube
-    global ecc
+    global euc
 
     file = '../data/p32_tides.dat'
     parser = lambda x: pd.datetime.strptime(x, '%d-%b-%Y %H:%M:%S')
@@ -542,5 +561,10 @@ def test(ec = None):
         pdr.elevation_cube = ec.copy()
         pdr.elevation = ec[0].copy()
 
-    for hh in pdr.households: hh.discount = 0.25
-    ecc = pdr.calc_eu_series(MHW, 2.0, MW, 1.0, 5)
+    for hh in pdr.households.values(): hh.discount = 0.05
+    euc = pdr.calc_eu_series(MHW, 2.0, MW, 1.0, 5)
+
+import pickle
+
+elevation_cube = pickle.load(open('elevation_cube.pickle', 'rb'))
+test(elevation_cube)
