@@ -545,7 +545,7 @@ def test(ec = None):
 
     pdr = polder(x = X, y = Y, time_horizon= t, n_households = N,
                  max_wealth=max_wealth, max_profit = max_profit,
-                 border_height = 0.5, amplitude = 1.5, noise = 0.05)
+                 border_height = 0.5, amplitude = 0.5, noise = 0.05)
     pdr.add_breach(breachX, breachY, t)
 
     if ec is None:
@@ -566,5 +566,5 @@ def test(ec = None):
 
 import pickle
 
-elevation_cube = pickle.load(open('elevation_cube.pickle', 'rb'))
+elevation_cube = pickle.load(open('elevation_cube_05.pickle', 'rb'))
 test(elevation_cube)
