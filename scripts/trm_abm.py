@@ -14,7 +14,7 @@ import pandas as pd
 import squarify as sq
 from scipy.signal import argrelextrema
 import time
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 # import pdb
 # from itertools import izip, count
 # from scipy import ndimage
@@ -129,16 +129,24 @@ class auction(object):
         u = dict( [ (hh.id, hh.eu_df.eu.loc[index]) for hh in self.households.values() ] )
         trans = [t for t in self.transactions if t.year == index]
         for t in trans:
+            # print "Transaction: buyer = ", t.buyer_id(), ", seller = ", t.seller_id(), ", year = ", t.year[0], ", price = ", t.price
             u[t.buyer_id()] -= t.price
             u[t.seller_id()] += t.price
         return(u)
 
+    def unhappy(self, index):
+        potentially_unhappy = dict([(hh.id, hh.eu_df) for hh in self.households.values() if hh.eu_df.index[0] != index])
+        u = self.utility(index)
+        utilities = dict([(k, u[k]) for k in potentially_unhappy.keys()])
+        baseline = dict( [ (k, potentially_unhappy[k].iloc(0)) for k in potentially_unhappy.keys()])
+        unhappy = dict([(k, (utilities[k], potentially_unhappy[k])) \
+                        for k in potentially_unhappy.keys() \
+                        if utilities[k] < potentially_unhappy[k].iloc[0])
+        return unhappy
+    
     def count_unhappy(self, index):
-        utilities = self.utility(index)
-        baseline = dict( [ (hh.id, hh.eu_df.eu.iloc[0]) for hh in self.households.values() ] )
-        n = sum([ baseline[hh_id] > utilities[hh.id] for hh_id in utilities.keys() ])
-        return n
-
+        return len(self.unhappy(index))
+    
     def vote(self, force = False):
         if self.ballots is None:
             return None
@@ -159,12 +167,12 @@ class auction(object):
         global tt, bbids
         self.initialize_votes()
         for round in range(max_rounds):
-            print "Round ", round
+            # print "Round ", round
             winner = self.vote()
             if winner is not None:
                 return (winner, self.utility(winner))
             target = self.vote(force = True)
-            print "Target = ", target
+            # print "Target = ", target
             buyers  = [trans.buyer for trans in self.transactions]
             sellers = [trans.seller for trans in self.transactions]
             buyer_ids = [ b.id for b in buyers ]
@@ -185,10 +193,10 @@ class auction(object):
                 trans.seller.wealth += trans.price
                 self.ballots[trans.seller_id()] = trans.year
             if len(transactions) > 0:
-                print len(transactions), " Transactions"
+                # print len(transactions), " Transactions"
                 self.transactions += transactions
             else:
-                print "No transactions"
+                # print "No transactions"
                 break
         winner = self.vote(force = True)
         return (winner, self.utility(winner))
@@ -200,13 +208,15 @@ class auction(object):
         wtp = bids[bids.is_offer.values][['id', 'year','amount']]
         wtpp = wtp.copy()
         wtaa = wta.copy()
+        wta = wta[np.logical_not(wta.duplicated())]
+        wtp = wtp[np.logical_not(wtp.duplicated())]
         # wta = wta.drop_duplicates(inplace = True)
         # wtp = wtp.drop_duplicates(inplace = True)
         if wta is None or wta.shape[0] < 2:
-            print "Empty wta"
+            # print "Empty wta"
             return transactions
         if wtp is None or wtp.shape[0] < 2:
-            print "Empty wtp"
+            # print "Empty wtp"
             return transactions
         wta = wta.pivot(index = 'id', columns = 'year', values = 'amount')
         wtp = wtp.pivot(index = 'id', columns = 'year', values = 'amount')
@@ -218,22 +228,27 @@ class auction(object):
             buyer = wtp.loc[buyer_index]
             buyer_year = buyer[np.logical_not(buyer.isnull())]
             offer = buyer_year.values[0]
-            seller_candidates = wta[buyer_year.index]
+            # print "Buyer_year.index - ", buyer_year.index
+            # print "WTA.columns = ", wta.columns
+            if buyer_year.index.values in wta.columns.values:
+                seller_candidates = wta[buyer_year.index]
+            else:
+                continue
             seller_candidates = seller_candidates[np.logical_not(pd.isnull(seller_candidates.values))]
             seller_candidates = seller_candidates[seller_candidates.values <= offer]
             if seller_candidates.shape[0] > 0:
-                print "Year ", buyer_year.index[0], ": ", buyer.index[0], " offers ", offer
-                print "     seller_candidates has shape ", seller_candidates.shape
+                # print "Year ", buyer_year.index[0], ": ", buyer.index[0], " offers ", offer
+                # print "     seller_candidates has shape ", seller_candidates.shape
                 seller_index = np.random.choice(seller_candidates.index, 1)[0]
                 seller = seller_candidates.loc[seller_index]
                 accept = seller.values[0]
-                print "Year ", buyer_year.index[0], ": ", buyer.index[0], " offers ", offer, " and ", \
-                    seller.index[0], " will accept ", accept
+                # print "Year ", buyer_year.index[0], ": ", buyer.index[0], " offers ", offer, " and ", \
+                #        seller.index[0], " will accept ", accept
                 if  offer >= accept:
                     price = (offer + accept) / 2.0
-                    print "Offer accepted: price = ", price
+                    # print "Offer accepted: price = ", price
                     if True: # self.households[p.buyer].wealth >= price:
-                        print buyer_index, seller_index
+                        # print buyer_index, seller_index
                         bh = self.households[buyer_index]
                         sh = self.households[seller_index]
                         tx = transaction(bh, sh, buyer_year.index, price)
@@ -241,10 +256,11 @@ class auction(object):
                         wtp.drop(buyer_index, inplace = True)
                         wta.drop(seller_index, inplace = True)
                 else:
-                    print "Offer rejected."
+                    # print "Offer rejected."
+                    pass
             if wta.shape[0] == 0 or wtp.shape[0] == 0:
                 break
-        print len(transactions), " transactions."
+        # print len(transactions), " transactions."
         return transactions
 
 class household(object):
