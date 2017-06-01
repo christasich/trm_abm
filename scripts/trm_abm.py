@@ -138,10 +138,10 @@ class auction(object):
         potentially_unhappy = dict([(hh.id, hh.eu_df) for hh in self.households.values() if hh.eu_df.index[0] != index])
         u = self.utility(index)
         utilities = dict([(k, u[k]) for k in potentially_unhappy.keys()])
-        baseline = dict( [ (k, potentially_unhappy[k].iloc(0)) for k in potentially_unhappy.keys()])
+        baseline = dict( [ (k, potentially_unhappy[k].iloc[0]) for k in potentially_unhappy.keys()])
         unhappy = dict([(k, (utilities[k], potentially_unhappy[k])) \
                         for k in potentially_unhappy.keys() \
-                        if utilities[k] < potentially_unhappy[k].iloc[0])
+                        if utilities[k] < potentially_unhappy[k].iloc[0].eu])
         return unhappy
     
     def count_unhappy(self, index):
@@ -234,8 +234,8 @@ class auction(object):
                 seller_candidates = wta[buyer_year.index]
             else:
                 continue
-            seller_candidates = seller_candidates[np.logical_not(pd.isnull(seller_candidates.values))]
-            seller_candidates = seller_candidates[seller_candidates.values <= offer]
+            seller_candidates = seller_candidates[np.logical_not(pd.isnull(seller_candidates.values))[:,0]]
+            seller_candidates = seller_candidates[(seller_candidates.values <= offer)[:,0]]
             if seller_candidates.shape[0] > 0:
                 # print "Year ", buyer_year.index[0], ": ", buyer.index[0], " offers ", offer
                 # print "     seller_candidates has shape ", seller_candidates.shape
