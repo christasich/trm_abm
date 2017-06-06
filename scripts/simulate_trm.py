@@ -8,7 +8,7 @@ import os
 import pickle
 import matplotlib.pyplot as plt
 
-# from trm_abm import *
+from trm_abm import *
 
 
 def calc_trm(pdr, discount, horizon, trm_k = 2.0, wl_k = 1.0):
@@ -186,18 +186,18 @@ def runit(force = False):
     else:
         test()
         pickle.dump(elevation_cube, open('elevation_cube.pickle', 'wb'))
-    
-    
+
+
     plt.draw()
     plt.close('all')
     plt.ion()
-    
+
     a = auction(pdr.households)
     a_res = a.auction()
-    
+
     v = election(pdr.households)
     v_res = v.vote()
-    
+
 def batch(force = False, trm_k = 5.0):
     global vres_list, ares_list
     vres_list = []
@@ -211,7 +211,7 @@ def batch(force = False, trm_k = 5.0):
     # wl_profit = pdr.calc_profit(MW, 1.0, elevation_cube, False)
     for horizon in range(3,7):
         calc_trm(pdr, 0.15, 4, trm_k = trm_k)
-    
+
         a = auction(pdr.households)
         v = election(pdr.households)
         ares = a.auction()
@@ -219,4 +219,4 @@ def batch(force = False, trm_k = 5.0):
         vres_list.append(vres)
         ares_list.append(ares)
         print "Vote: winner = ", vres[0], " min utility = ", min(vres[1].values()), ", ", v.count_unhappy(vres[0]), " unhappy households"
-        print "Auction: winner = ", ares[0], " min utility = ", min(ares[1].values()), ", ", a.count_unhappy(ares[0]), " unhappy households" 
+        print "Auction: winner = ", ares[0], " min utility = ", min(ares[1].values()), ", ", a.count_unhappy(ares[0]), " unhappy households"
