@@ -210,7 +210,7 @@ def batch(force = False, trm_k = 5.0):
     # trm_profit = pdr.calc_profit(MHW, 5.0, elevation_cube, False)
     # wl_profit = pdr.calc_profit(MW, 1.0, elevation_cube, False)
     for horizon in range(3,7):
-        calc_trm(pdr, 0.15, 4, trm_k = trm_k)
+        calc_trm(pdr, 0.15, horizon, trm_k = trm_k)
 
         a = auction(pdr.households)
         v = election(pdr.households)
