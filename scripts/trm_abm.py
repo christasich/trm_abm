@@ -4,9 +4,7 @@ Created on Wed Mar 22 15:48:23 2017
 
 @author: Chris Tasich
 """
-#==============================================================================
-# IMPORT PACKAGES
-#==============================================================================
+#%% Import packages
 
 import numpy as np
 import numpy.ma as ma
@@ -19,7 +17,7 @@ import time
 # from itertools import izip, count
 # from scipy import ndimage
 
-
+#%% Load tides
 #==============================================================================
 # LOAD TIDES
 #==============================================================================

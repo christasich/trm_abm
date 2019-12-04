@@ -4,6 +4,8 @@ Created on Mon May 22 19:34:34 2017
 
 @author: jonathan
 """
+
+#%%
 import os
 import pickle
 import matplotlib.pyplot as plt
@@ -91,7 +93,7 @@ def test(ec = None):
         for i in range(pdr.time_horizon):
             pdr.aggrade(tides, ws, rho, SSC, dP, dO, i + 1)
             t2 = time.time()
-            print ("%2d: %.02f, %.02f" % (i, float(t2 - t1), float(t2 - t0)))
+            print("%2d: %.02f, %.02f" % (i, float(t2 - t1), float(t2 - t0)))
             t1 = t2
         elevation_cube = pdr.elevation_cube.copy()
     else:
@@ -218,5 +220,5 @@ def batch(force = False, trm_k = 5.0):
         vres = v.vote()
         vres_list.append(vres)
         ares_list.append(ares)
-        print "Vote: winner = ", vres[0], " min utility = ", min(vres[1].values()), ", ", v.count_unhappy(vres[0]), " unhappy households"
-        print "Auction: winner = ", ares[0], " min utility = ", min(ares[1].values()), ", ", a.count_unhappy(ares[0]), " unhappy households"
+        print("Vote: winner = ", vres[0], " min utility = ", min(vres[1].values()), ", ", v.count_unhappy(vres[0]), " unhappy households")
+        print()"Auction: winner = ", ares[0], " min utility = ", min(ares[1].values()), ", ", a.count_unhappy(ares[0]), " unhappy households")

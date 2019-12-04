@@ -29,8 +29,6 @@ class election(decision):
     def __init__(self, hh_dict):
         super.__init__(hh_dict)
     def decide(self):
-        
-    def decide(self):
         ballots = np.array( [ np.array(hh.vote(), dtype = np.integer) \
                   for hh in self.households.values() ] )
         winner = election.instant_runoff(ballots)
