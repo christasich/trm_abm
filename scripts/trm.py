@@ -62,7 +62,7 @@ class election(object):
     def count_unhappy(self, index):
         utilities = self.utility(index)
         baseline = dict( [ (hh.id, hh.eu_df.eu.iloc[0]) for hh in self.households.values() ] )
-        n = sum([ baseline[hh_id] > utilities[hh.id] for hh_id in utilities.keys() ])
+        n = sum([ baseline[hh_id] > utilities[hh_id] for hh_id in utilities.keys() ])
         return n
 
     def vote(self):
