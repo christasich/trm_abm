@@ -5,11 +5,11 @@ library(oce)
 library(feather)
 
 # Set working dir
-setwd("C:/Users/tasichcm/Projects/tidal_flat_0d")
+setwd("C:/Users/tasichcm/Projects/trm_abm")
 args<-commandArgs(TRUE)
 
 # Read data from csv
-pressure = read.csv("data/interim/sutarkhali_pressure.csv")
+pressure = read.csv("data/sutarkhali_pressure.csv")
 
 # Filter NaNs and normalize by mean
 pressure = pressure %>%
@@ -40,4 +40,4 @@ tides$pressure = predict(mod, newdata=index)
 
 tides$pressure = tides$pressure + sl_vec
 
-write_feather(tides,sprintf('./data/interim/feather/tides/tides.%.3f_slr', slr))
+write_feather(tides,sprintf('./data/tides.%.3f_slr.feather', slr))

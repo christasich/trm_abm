@@ -39,11 +39,16 @@ def apply_linear_slr(df, rate_slr):
 
 
 def make_tides(run_length, dt, slr):
+    outfile = './data/tides.{0}_slr.feather'.format('%.3f' % slr)
+    if os.path.exists(outfile):
+        tides = feather.read_dataframe(outfile)
+        tides = tides.set_index('Datetime')
+        return tides
     Rscript = "C:\\Program Files\\R\\R-3.6.1\\bin\\Rscript.exe"
-    make_tides = "C:\\Users\\tasichcm\\Projects\\tidal_flat_0d\\scripts\\make_tides.R"
+    make_tides = "C:\\Users\\tasichcm\\Projects\\trm_abm\\scripts\\make_tides.R"
     subprocess.run([Rscript, make_tides, str(run_length), str(dt), '%.3f' % slr])
     
-    tides = feather.read_dataframe('./data/interim/feather/tides/tides.{0}_slr'.format('%.3f' % slr))
+    tides = feather.read_dataframe(outfile)
     tides = tides.set_index('Datetime')
     
     return tides
@@ -105,59 +110,6 @@ def run_model(tides, gs, rho, dP, dO, dM, A, z0, n=0):
         
     return df, hours_inundated, final_elevation
 
-def make_combos(run_length, dt, slr, ssc_factor, gs, rho, dP, dO, dM, A, z0):
-    args = inspect.getfullargspec(make_combos).args
-    multi_args = []
-    n = 0
-    for arg in args:
-        if isinstance(eval(arg), (list, tuple, np.ndarray)):
-            multi_args.append(arg)
-    single_args = list(set(args) - set(multi_args))
-    dict1 = [{'{0}'.format(j) : eval(j)} for j in single_args]
-    dict2 = [dict(zip(multi_args, i)) for i in itertools.product(*[eval(x) for x in multi_args])]
-    for entry2 in dict2:
-        for entry1 in dict1:
-            entry2.update(entry1)
-        entry2.update({'n' : n})
-        n = n + 1
-
-    return dict2
-
-
-def parallel_parser(in_data):
-    global ssc_by_week
-
-    n = in_data['n']
-    
-    # make tides
-    run_length = in_data['run_length']
-    dt = in_data['dt']
-    slr = in_data['slr']
-    
-    tides = make_tides(run_length, dt, slr)
-    
-    # Load weeksly ssc
-    ssc_factor = in_data['ssc_factor']
-    
-    ssc_file = './data/processed/ssc_by_week.csv'
-    ssc_by_week = pd.read_csv(ssc_file, index_col=0) * ssc_factor
-    
-    # run model
-    
-    gs = in_data['gs']
-    rho = in_data['rho']
-    dP = in_data['dP']
-    dO = in_data['dO']
-    dM = in_data['dM']
-    A = in_data['A']
-    z0 = in_data['z0']
-    
-    df, hours_inundated, final_elevation = run_model(tides, gs, rho, dP, dO, dM, A, z0, n=n)
-    out_name = '{0}_yr.slr_{1}.gs_{2}.rho_{3}.ssc_factor{4}.dP_{5}.dM_{6}.A_{7}.z0{8}'.format(run_length, slr, gs, rho, ssc_factor, dP, dM, A, z0)
-    feather.write_dataframe(df, './data/interim/feather/model_runs/{0}'.format(out_name))
-
-    return n
-
 #%% Run model
 
 if __name__ == '__main__':
@@ -171,14 +123,14 @@ if __name__ == '__main__':
 
     if reset == True:
         try:
-            shutil.rmtree(os.path.join(wdir, 'data/interim/feather'))
+            shutil.rmtree(os.path.join(wdir, 'data/feather'))
         except:
             pass
 
-    if not os.path.exists(os.path.join(wdir, 'data/interim/feather')):
-        os.mkdir(os.path.join(wdir, 'data/interim/feather'))
-        os.mkdir(os.path.join(wdir, 'data/interim/feather/model_runs'))
-        os.mkdir(os.path.join(wdir, 'data/interim/feather/tides'))
+    if not os.path.exists(os.path.join(wdir, 'data/feather')):
+        os.mkdir(os.path.join(wdir, 'data/feather'))
+        os.mkdir(os.path.join(wdir, 'data/feather/model_runs'))
+        os.mkdir(os.path.join(wdir, 'data/feather/tides'))
 
     #%% Set model paramters
 
@@ -208,9 +160,9 @@ if __name__ == '__main__':
                 num = num + 1
     else:
         tides = make_tides(run_length, dt, slr)
-        ssc_file = './data/processed/ssc_by_week.csv'
+        ssc_file = './data/ssc_by_week.csv'
         ssc_by_week = pd.read_csv(ssc_file, index_col=0) * ssc_factor
 
         df, hours_inundated, final_elevation = run_model(tides, gs, rho, dP, dO, dM, A, z0)
         out_name = '{0}_yr.slr_{1}.gs_{2}.rho_{3}.ssc_factor{4}.dP_{5}.dM_{6}.A_{7}.z0{8}'.format(run_length, slr, gs, rho, ssc_factor, dP, dM, A, z0)
-        feather.write_dataframe(df, './data/interim/feather/model_runs/{0}'.format(out_name))
+        feather.write_dataframe(df, './data/feather/model_runs/{0}'.format(out_name))

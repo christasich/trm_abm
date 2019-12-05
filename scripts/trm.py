@@ -8,6 +8,7 @@ from scipy.signal import argrelextrema
 import squarify as sq
 import time
 import numpy.ma as ma
+from sed_mod import *
 
 #%% Define classes
 
@@ -591,12 +592,23 @@ def test(ec = None):
     global trm_profit
     global wl_profit
 
-    file = './data/p32_tides.dat'
-    parser = lambda x: pd.datetime.strptime(x, '%d-%b-%Y %H:%M:%S')
-    start = pd.datetime(2015,5,15,1)
-    end = pd.datetime(2016,5,14,1)
+    method = 2
 
-    tides = load_tides(file,parser,start,end) + 0.25
+    if method == 1:
+        file = './data/p32_tides.dat'
+        parser = lambda x: pd.datetime.strptime(x, '%d-%b-%Y %H:%M:%S')
+        start = pd.datetime(2015,5,15,1)
+        end = pd.datetime(2016,5,14,1)
+
+        tides = load_tides(file,parser,start,end) + 0.25
+
+    else:
+        run_length = 1
+        dt = '10 min'
+        slr = 0
+
+        tides = make_tides(run_length, dt, slr)
+        tides = tides['pressure']
 
     # Calculate Mean High Water
     pressure = tides.values
@@ -769,4 +781,19 @@ def batch(force = False, trm_k = 5.0):
         print("Auction: winner = ", ares[0], " min utility = ", min(ares[1].values()), ", ", a.count_unhappy(ares[0]), " unhappy households")
 
 #%% Run program
+
+# ssc_factor = 1
+# gs = 0.03
+# rho = 1400
+# dP = 0
+# dO = 0
+# dM = 0.002
+# A = 0.7
+# z0 = 0.65
+# tides = make_tides(run_length, dt, slr)
+# ssc_file = './data/ssc_by_week.csv'
+# ssc_by_week = pd.read_csv(ssc_file, index_col=0) * ssc_factor
+
+# df, hours_inundated, final_elevation = run_model(tides, gs, rho, dP, dO, dM, A, z0)
+
 runit()
