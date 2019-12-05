@@ -289,7 +289,6 @@ class breach(object):
         self.scaled_dist = self.dist / 1000. + 1.
         self.A = 0.0
 
-
 class polder(object):
     def __init__(self, x, y,
                  time_horizon,
@@ -573,7 +572,6 @@ def calc_trm(pdr, discount, horizon, trm_k = 2.0, wl_k = 1.0):
         cbar = plt.colorbar()
         cbar.set_label("Net present value")
 
-
 def test(ec = None):
     global pdr
     global tides
@@ -769,7 +767,6 @@ def batch(force = False, trm_k = 5.0):
         ares_list.append(ares)
         print("Vote: winner = ", vres[0], " min utility = ", min(vres[1].values()), ", ", v.count_unhappy(vres[0]), " unhappy households")
         print("Auction: winner = ", ares[0], " min utility = ", min(ares[1].values()), ", ", a.count_unhappy(ares[0]), " unhappy households")
-
 
 #%% Run program
 runit()
