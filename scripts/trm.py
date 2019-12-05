@@ -1,11 +1,4 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Mon May 22 19:34:34 2017
-
-@author: jonathan
-"""
-
-#%%
+#%% Import packages
 import os
 import pickle
 import matplotlib.pyplot as plt
@@ -16,40 +9,7 @@ import squarify as sq
 import time
 import numpy.ma as ma
 
-def load_tides(file,parser,start,end):
-    df = pd.read_csv(file,parse_dates=['datetime'],date_parser=parser,index_col='datetime')
-    df1 = df[(df.index >= start) & (df.index < end) & (df.index.minute == 0)]
-    df2 = df1['pressure'] - np.mean(df1['pressure'])
-    return df2
-
-def aggrade_patches(heads,times,ws,rho,SSC,dP,dO,z0, z_breach):
-    z = z0.copy()
-    C_last = np.zeros_like(z0)
-    dt = float((times[1]-times[0]).seconds)
-    delta_h = (heads.values[1:] - heads.values[:-1])
-    for h, dh in zip(heads[1:], delta_h):
-        if h > z_breach:
-            delta_z = ma.masked_less_equal(h-z, 0.0)
-            delta_z.set_fill_value(0.0)
-            if dh > 0:
-                # C0 = 0.69 * SSC * delta_z
-                C_next = ( delta_z * ( 0.69 * dh * SSC + C_last) ) / (delta_z + dh + ws/dt)
-            else:
-                C_next = ( C_last * delta_z ) / (delta_z + ws/dt)
-        else:
-            C_next = ma.array(np.zeros_like(z0), ma.nomask)
-        C_last = C_next.filled()
-        dz = C_last * ws * dt / rho
-        z += dz + dO - dP
-        # print "Sum(dz) = ", np.sum(dz), ", Sum(C_last) = ", np.sum(C_last)
-    return (z)
-
-#==============================================================================
-# CALCULATE WATER LOGGING RISK
-#==============================================================================
-#==============================================================================
-# DEFINE CLASSES
-#==============================================================================
+#%% Define classes
 
 class election(object):
     def __init__(self, hh_dict):
@@ -566,6 +526,36 @@ class polder(object):
         self.elevation_cube[period] = new_layer
         self.current_period = period
 
+#%% Define functions
+
+def load_tides(file,parser,start,end):
+    df = pd.read_csv(file,parse_dates=['datetime'],date_parser=parser,index_col='datetime')
+    df1 = df[(df.index >= start) & (df.index < end) & (df.index.minute == 0)]
+    df2 = df1['pressure'] - np.mean(df1['pressure'])
+    return df2
+
+def aggrade_patches(heads,times,ws,rho,SSC,dP,dO,z0, z_breach):
+    z = z0.copy()
+    C_last = np.zeros_like(z0)
+    dt = float((times[1]-times[0]).seconds)
+    delta_h = (heads.values[1:] - heads.values[:-1])
+    for h, dh in zip(heads[1:], delta_h):
+        if h > z_breach:
+            delta_z = ma.masked_less_equal(h-z, 0.0)
+            delta_z.set_fill_value(0.0)
+            if dh > 0:
+                # C0 = 0.69 * SSC * delta_z
+                C_next = ( delta_z * ( 0.69 * dh * SSC + C_last) ) / (delta_z + dh + ws/dt)
+            else:
+                C_next = ( C_last * delta_z ) / (delta_z + ws/dt)
+        else:
+            C_next = ma.array(np.zeros_like(z0), ma.nomask)
+        C_last = C_next.filled()
+        dz = C_last * ws * dt / rho
+        z += dz + dO - dP
+        # print "Sum(dz) = ", np.sum(dz), ", Sum(C_last) = ", np.sum(C_last)
+    return (z)
+
 def logit(z,k,mid):
     x = 1.0 / (1.0 + np.exp(-k*(z-mid)))
     return x
@@ -781,5 +771,5 @@ def batch(force = False, trm_k = 5.0):
         print("Auction: winner = ", ares[0], " min utility = ", min(ares[1].values()), ", ", a.count_unhappy(ares[0]), " unhappy households")
 
 
-# %%
+#%% Run program
 runit()
