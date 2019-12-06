@@ -8,7 +8,7 @@ from scipy.signal import argrelextrema
 import squarify as sq
 import time
 import numpy.ma as ma
-from sed_mod import *
+from scripts.sed_mod import *
 
 #%% Define classes
 
@@ -518,11 +518,14 @@ class polder(object):
         if period < 0:
             period = self.current_period + 1
         assert(period > 0 and period <= self.time_horizon)
-        sed_load = np.zeros_like(self.elevation)
+        ssc_file = './data/ssc_by_week.csv'
+        ssc_by_week = pd.read_csv(ssc_file, index_col=0)
+        sed_load = np.zeros((self.height, self.width, len(ssc_by_week)))
         for b in self.breaches:
-            sed_load += SSC * b.scaled_dist ** -2.3
+            for week in ssc_by_week.index:
+                sed_load[:,:,week-1] += 0.7 * SSC * b.scaled_dist ** -2.3
         new_layer = self.elevation_cube[period - 1]
-        new_layer = aggrade_patches(heads, heads.index, ws, rho, sed_load, dP, dO, new_layer, self.border_height)
+        new_layer = aggrade_patches(heads, ws, rho, sed_load, dP, dO, new_layer, self.border_height)
         self.elevation_cube[period] = new_layer
         self.current_period = period
 
@@ -534,12 +537,16 @@ def load_tides(file,parser,start,end):
     df2 = df1['pressure'] - np.mean(df1['pressure'])
     return df2
 
-def aggrade_patches(heads,times,ws,rho,SSC,dP,dO,z0, z_breach):
+def aggrade_patches(tides, ws, rho, sed_load, dP, dO, z0, z_breach):
+    heads = tides.values
+    delta_h = (heads[1:] - heads[:-1])
+    times = tides.index
+    dt = (tides.index[1] - tides.index[0]).total_seconds()
     z = z0.copy()
     C_last = np.zeros_like(z0)
-    dt = float((times[1]-times[0]).seconds)
-    delta_h = (heads.values[1:] - heads.values[:-1])
-    for h, dh in zip(heads[1:], delta_h):
+    for time, h, dh in zip(times[1:], heads[1:], delta_h):
+        week = time.week
+        SSC = sed_load[:,:,week-1]
         if h > z_breach:
             delta_z = ma.masked_less_equal(h-z, 0.0)
             delta_z.set_fill_value(0.0)
@@ -592,23 +599,12 @@ def test(ec = None):
     global trm_profit
     global wl_profit
 
-    method = 2
+    run_length = 1
+    dt = '10 min'
+    slr = 0
 
-    if method == 1:
-        file = './data/p32_tides.dat'
-        parser = lambda x: pd.datetime.strptime(x, '%d-%b-%Y %H:%M:%S')
-        start = pd.datetime(2015,5,15,1)
-        end = pd.datetime(2016,5,14,1)
-
-        tides = load_tides(file,parser,start,end) + 0.25
-
-    else:
-        run_length = 1
-        dt = '10 min'
-        slr = 0
-
-        tides = make_tides(run_length, dt, slr)
-        tides = tides['pressure']
+    tides = make_tides(run_length, dt, slr)
+    tides = tides['pressure']
 
     # Calculate Mean High Water
     pressure = tides.values
@@ -630,8 +626,7 @@ def test(ec = None):
     t = 10 # in years
     gs = 0.03 # grain size in m
     ws = ((gs/1000)**2*1650*9.8)/0.018 # settling velocity calculated using Stoke's Law
-    rho = 1100 # dry bulk density in kg/m^2
-    SSC = 0.2 # suspended sediment concentration in g/L
+    rho = 1400 # dry bulk density in kg/m^2
     dP = 0 # compaction
     dO = 0 # organic matter deposition
 
@@ -781,19 +776,5 @@ def batch(force = False, trm_k = 5.0):
         print("Auction: winner = ", ares[0], " min utility = ", min(ares[1].values()), ", ", a.count_unhappy(ares[0]), " unhappy households")
 
 #%% Run program
-
-# ssc_factor = 1
-# gs = 0.03
-# rho = 1400
-# dP = 0
-# dO = 0
-# dM = 0.002
-# A = 0.7
-# z0 = 0.65
-# tides = make_tides(run_length, dt, slr)
-# ssc_file = './data/ssc_by_week.csv'
-# ssc_by_week = pd.read_csv(ssc_file, index_col=0) * ssc_factor
-
-# df, hours_inundated, final_elevation = run_model(tides, gs, rho, dP, dO, dM, A, z0)
 
 runit()
