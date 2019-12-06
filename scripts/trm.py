@@ -514,7 +514,7 @@ class polder(object):
         self.breach_duration = duration,
         self.breaches.append(breach(self, breach_x, breach_y, self.border_height))
 
-    def aggrade(self, heads, ws, rho, SSC, dP, dO, period = -1):
+    def aggrade(self, heads, ws, rho, dP, dO, period = -1):
         if period < 0:
             period = self.current_period + 1
         assert(period > 0 and period <= self.time_horizon)
@@ -523,6 +523,7 @@ class polder(object):
         sed_load = np.zeros((self.height, self.width, len(ssc_by_week)))
         for b in self.breaches:
             for week in ssc_by_week.index:
+                SSC = ssc_by_week.loc[week].values[0]
                 sed_load[:,:,week-1] += 0.7 * SSC * b.scaled_dist ** -2.3
         new_layer = self.elevation_cube[period - 1]
         new_layer = aggrade_patches(heads, ws, rho, sed_load, dP, dO, new_layer, self.border_height)
@@ -604,7 +605,7 @@ def test(ec = None):
     slr = 0
 
     tides = make_tides(run_length, dt, slr)
-    tides = tides['pressure']
+    tides = tides['pressure'] + 1.0
 
     # Calculate Mean High Water
     pressure = tides.values
@@ -643,7 +644,7 @@ def test(ec = None):
         t0 = time.time()
         t1 = t0
         for i in range(pdr.time_horizon):
-            pdr.aggrade(tides, ws, rho, SSC, dP, dO, i + 1)
+            pdr.aggrade(tides, ws, rho, dP, dO, i + 1)
             t2 = time.time()
             print("%2d: %.02f, %.02f" % (i, float(t2 - t1), float(t2 - t0)))
             t1 = t2

@@ -1,0 +1,5 @@
+{
+    "code-runner.executorMap": {
+    "python": "C:\\tools\\Anaconda3\\Scripts\\activate.bat C:\\tools\\Anaconda3 & conda activate base & python"
+    }
+}
