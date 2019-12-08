@@ -211,19 +211,39 @@ class household(object):
         self.wealth = wealth
         self.discount = discount
         self.eu_df = eu_df
+        self.ref_profit = 0.0
         self.bids = pd.DataFrame(index = [], columns = ['id', 'year', 'is_offer', 'amount'])
         if plots is None:
             self.plots = np.zeros((0,5), dtype=np.integer)
         else:
             self.plots = np.array(plots, dtype=np.integer)
 
+    def set_ref_profit(self, profit_slice):
+        assert(len(profit_slice.shape) == 2)
+        own_patches_ref_profit = np.concatenate([ household.extract_2d(profit_slice, p) \
+                                             for p in self.plots ])
+        self.ref_profit = np.sum(own_patches_ref_profit)
+
+
     def utility(self, profit_dc):
         own_patches_profit = np.concatenate([ household.extract_and_collapse(profit_dc, p) \
                                              for p in self.plots ],
                                       axis = 0)
         profit = np.sum(own_patches_profit, axis = 0)
-        eu = np.sum(profit * np.exp(- self.discount * np.arange(len(profit))))
-        return eu
+        # This is where you do something with the profit
+        # e.g.,
+        # eu = profit
+        # or 
+        # eu = profit - ref_profit
+        # if (eu < 0) eu = eu * 2
+        # ...
+        eu = profit
+        # if np.sum(profit) >= self.ref_profit:
+        #     eu = profit - self.ref_profit
+        # elif np.sum(profit) < self.ref_profit:
+        #     eu = 2*(profit - self.ref_profit)
+        npv = np.sum(eu * np.exp(- self.discount * np.arange(len(profit))))
+        return npv
 
     def set_eu(self, eu_df):
         self.eu_df = eu_df.sort_values('eu', ascending = False)
@@ -272,8 +292,16 @@ class household(object):
 
     @staticmethod
     def extract_and_collapse(dc, p):
+        assert(len(dc.shape) == 3)
         x = dc[:,p[1]:(p[1] + p[3]),p[0]:(p[0] + p[2])].copy()
         x = x.reshape((x.shape[0], x.shape[1] * x.shape[2]))
+        return x
+
+    @staticmethod
+    def extract_2d(a, p):
+        assert(len(a.shape) == 2)
+        x = a[p[1]:(p[1] + p[3]),p[0]:(p[0] + p[2])].copy()
+        x = x.reshape((x.shape[0] * x.shape[1]))
         return x
 
 class breach(object):
@@ -311,6 +339,7 @@ class polder(object):
         self.initialize_elevation(border_height = border_height,
                                   amplitude = amplitude, noise = noise)
         self.initialize_hh(n_households)
+        self.ref_profit = np.zeros((x, y))
 
     def initialize_elevation(self, border_height = None, amplitude = 1.0, noise = 0.05):
         if border_height is None:
@@ -335,6 +364,9 @@ class polder(object):
         self.elevation_cube = np.zeros((self.time_horizon + 1, self.height, self.width))
         self.elevation_cube[0] = self.elevation
         self.current_period = 0
+        # self.set_ref_profit()
+        # put a function to set each household's reference profit
+        # similar to household.utility
 
     def initialize_hh(self, n_households):
         self.owners = np.zeros_like(self.elevation, dtype = np.integer)
@@ -345,11 +377,13 @@ class polder(object):
             for hh in self.households.values():
                 for p in hh.plots:
                     self.owners[p[1]:(p[1]+p[3]),p[0]:(p[0]+p[2])] = hh.id
+        # self.set_ref_profit()
 
     def initialize_hh_from_plots(self, n_households):
         assert max(self.owners) < n_households
         self.households = dict([(i, household(id = i)) for i in range(n_households)])
         self.set_hh_plots()
+        # self.set_ref_profit()
 
     def set_households(self, households):
         if isinstance(households, dict):
@@ -359,6 +393,7 @@ class polder(object):
             self.households = dict((hh.id, hh) for hh in households)
         self.owners = np.zeros_like(self.elevation, dtype = np.integer)
         self.set_owners_wealth()
+        # self.set_ref_profit()
 
     def set_hh_wealth(self, hh):
         z0 = self.elevation.min() - 0.5
@@ -382,6 +417,7 @@ class polder(object):
             hh = self.households[self.plots[i,4]]
             hh.plots.append(self.plots[i,:4])
         self.set_owners_wealth()
+        # self.set_ref_profit()
 
     @staticmethod
     def build_subplots(weights, x0, y0, dx, dy, ix0 = 0):
@@ -482,7 +518,15 @@ class polder(object):
             df = pd.DataFrame({'year':range(n_years), 'eu':eu_array[:,i]})
             self.households[hh_id].set_eu(df)
 
-    def calc_eu_slice(self, trm_water_level, trm_k, wl_water_level, wl_k, ec, horizon, duration):
+    def set_ref_profit(self, wl_water_level, wl_k, ref_elevation = None):
+        if ref_elevation is None:
+            ref_elevation = self.elevation
+        self.ref_profit = self.calc_profit(wl_water_level, wl_k, ref_elevation, False)
+        for hh in self.households.values():
+            hh.set_ref_profit(self.ref_profit)
+
+
+    def calc_eu_scenario(self, trm_water_level, trm_k, wl_water_level, wl_k, ec, horizon, duration):
             ec1 = ec.copy()
             profit = np.zeros_like(ec, np.double)
             for j in range(duration + 1, horizon + 1):
@@ -497,12 +541,15 @@ class polder(object):
             horizon = self.time_horizon
         if elevation_cube is None:
             elevation_cube = self.elevation_cube
+        self.set_ref_profit(wl_water_level, wl_k, elevation_cube[0])
         eu_cube = np.zeros((horizon , self.elevation.shape[0], self.elevation.shape[1]), np.double)
         ec0 = elevation_cube[:horizon+1].copy()
         hh_eu_array = np.zeros((horizon, len(self.households)))
         hh_id_list = self.households.keys()
         for i in range(horizon):
-            eu, hh_eu = self.calc_eu_slice(trm_water_level, trm_k, wl_water_level, wl_k, ec0, horizon, i)
+            # calculate eu for a series of scenarios. If horizon = 5 years, calculate eu for 
+            # scenarios of 0, 1, 2, 3, and 4 years of TRM followed by closing the breach.
+            eu, hh_eu = self.calc_eu_scenario(trm_water_level, trm_k, wl_water_level, wl_k, ec0, horizon, i)
             eu_cube[i] = eu.copy()
             hh_eu_array[i] = [hh_eu[hh_id].copy() for hh_id in hh_id_list]
         self.eu_cube = eu_cube.copy()
@@ -770,3 +817,6 @@ def batch(force = False, trm_k = 5.0):
 
 #%% Run program
 runit()
+save_images(folder = "figures", euc = euc, ec = elevation_cube, wl_profit = wl_profit, trm_profit = trm_profit, note = None)
+
+# %%
