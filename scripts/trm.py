@@ -222,27 +222,35 @@ class household(object):
         assert(len(profit_slice.shape) == 2)
         own_patches_ref_profit = np.concatenate([ household.extract_2d(profit_slice, p) \
                                              for p in self.plots ])
-        self.ref_profit = np.sum(own_patches_ref_profit)
+        # own_patches_ref_profit = np.concatenate([ household.extract_and_collapse(profit_dc, p) \
+        #                                       for p in self.plots ])
+        self.ref_profit = own_patches_ref_profit
 
 
-    def utility(self, profit_dc):
+    def utility(self, profit_dc, utility_type='linear'):
         own_patches_profit = np.concatenate([ household.extract_and_collapse(profit_dc, p) \
                                              for p in self.plots ],
                                       axis = 0)
-        profit = np.sum(own_patches_profit, axis = 0)
-        # This is where you do something with the profit
-        # e.g.,
-        # eu = profit
-        # or 
-        # eu = profit - ref_profit
-        # if (eu < 0) eu = eu * 2
-        # ...
-        eu = profit
-        # if np.sum(profit) >= self.ref_profit:
-        #     eu = profit - self.ref_profit
-        # elif np.sum(profit) < self.ref_profit:
-        #     eu = 2*(profit - self.ref_profit)
-        npv = np.sum(eu * np.exp(- self.discount * np.arange(len(profit))))
+                                      
+        profit = np.sum(own_patches_profit, axis = 1)
+        ref_profit = [np.sum(self.ref_profit) for x in np.arange(len(profit))]
+
+        if utility_type == 'loss averse':
+            eu = profit - ref_profit
+        else:
+            eu = profit
+        
+        npv = np.sum(eu * np.exp(- self.discount * np.arange(len(eu))))
+
+        if utility_type == 'log':
+            npv = np.log(npv)
+            pass
+        elif utility_type == 'loss averse':
+            if npv < 0:
+                npv = npv * 2
+            else:
+                pass
+
         return npv
 
     def set_eu(self, eu_df):
@@ -500,10 +508,10 @@ class polder(object):
             self.profit = profit.copy()
         return profit
 
-    def calc_eu(self, profit_cube = None, save = True):
+    def calc_eu(self, profit_cube = None, utility_type='linear', save = True):
         if profit_cube is None:
             profit_cube = self.profit.copy()
-        hh_eu = dict([(hh.id, hh.utility(profit_cube)) for hh in self.households.values()])
+        hh_eu = dict([(hh.id, hh.utility(profit_dc=profit_cube, utility_type=utility_type)) for hh in self.households.values()])
         eu = np.zeros_like(self.owners, np.double)
         for i in range(eu.shape[0]):
             for j in range(eu.shape[1]):
@@ -525,31 +533,34 @@ class polder(object):
         for hh in self.households.values():
             hh.set_ref_profit(self.ref_profit)
 
+    # function that sets elevation cube for each scenario and passes modified ec/profit to calc_eu function
 
-    def calc_eu_scenario(self, trm_water_level, trm_k, wl_water_level, wl_k, ec, horizon, duration):
+    def calc_eu_scenario(self, trm_water_level, trm_k, wl_water_level, wl_k, ec, horizon, duration, utility_type='linear'):
             ec1 = ec.copy()
             profit = np.zeros_like(ec, np.double)
             for j in range(duration + 1, horizon + 1):
                 ec1[j] = ec1[duration]
             profit[:duration] = self.calc_profit(trm_water_level, trm_k, ec1[:duration], False)
             profit[duration:] = self.calc_profit(wl_water_level, wl_k, ec1[duration:], False)
-            eu, hh_eu = self.calc_eu(profit, False)
+            eu, hh_eu = self.calc_eu(profit_cube=profit, utility_type=utility_type, save=False)
             return(eu, hh_eu)
 
-    def calc_eu_series(self, trm_water_level, trm_k, wl_water_level, wl_k, horizon = None, elevation_cube = None, save = True):
+    # function that loads the portion of the elevation cube for a given time horizon. 
+    # Calls the eu scenario to calculate eu for each scenario from 0 to horizon
+    def calc_eu_series(self, trm_water_level, trm_k, wl_water_level, wl_k, horizon = None, elevation_cube = None, save = True, utility_type='linear'):
         if horizon is None:
             horizon = self.time_horizon
         if elevation_cube is None:
             elevation_cube = self.elevation_cube
         self.set_ref_profit(wl_water_level, wl_k, elevation_cube[0])
-        eu_cube = np.zeros((horizon , self.elevation.shape[0], self.elevation.shape[1]), np.double)
+        eu_cube = np.zeros((horizon , self.elevation.shape[0], self.elevation.shape[1]), np.double) #initialize eu cube
         ec0 = elevation_cube[:horizon+1].copy()
-        hh_eu_array = np.zeros((horizon, len(self.households)))
+        hh_eu_array = np.zeros((horizon, len(self.households))) # initialize eu for households for given horizon
         hh_id_list = self.households.keys()
         for i in range(horizon):
             # calculate eu for a series of scenarios. If horizon = 5 years, calculate eu for 
             # scenarios of 0, 1, 2, 3, and 4 years of TRM followed by closing the breach.
-            eu, hh_eu = self.calc_eu_scenario(trm_water_level, trm_k, wl_water_level, wl_k, ec0, horizon, i)
+            eu, hh_eu = self.calc_eu_scenario(trm_water_level, trm_k, wl_water_level, wl_k, ec0, horizon, duration=i, utility_type=utility_type)
             eu_cube[i] = eu.copy()
             hh_eu_array[i] = [hh_eu[hh_id].copy() for hh_id in hh_id_list]
         self.eu_cube = eu_cube.copy()
@@ -572,7 +583,6 @@ class polder(object):
         self.elevation_cube[period] = new_layer
         self.current_period = period
 
-#%% Define functions
 
 def load_tides(file,parser,start,end):
     df = pd.read_csv(file,parse_dates=['datetime'],date_parser=parser,index_col='datetime')
@@ -606,10 +616,10 @@ def logit(z,k,mid):
     x = 1.0 / (1.0 + np.exp(-k*(z-mid)))
     return x
 
-def calc_trm(pdr, discount, horizon, trm_k = 2.0, wl_k = 1.0):
+def calc_trm(pdr, discount, horizon, trm_k = 2.0, wl_k = 1.0, utility_type='linear'):
     global euc
     for hh in pdr.households.values(): hh.discount = discount
-    euc = pdr.calc_eu_series(MHW, trm_k, MW, wl_k, horizon)
+    euc = pdr.calc_eu_series(MHW, trm_k, MW, wl_k, horizon, utility_type=utility_type)
     d_euc = euc[1:] - euc[0]
     dem = max(d_euc.max(), -d_euc.min())
     for i in range(d_euc.shape[0]):
@@ -679,6 +689,8 @@ def test(ec = None):
                  border_height = 0.5, amplitude = 1.5, noise = 0.05)
     pdr.add_breach(breachX, breachY, t)
 
+    # The entire polder and all households are set up here ^
+
     if ec is None:
         t0 = time.time()
         t1 = t0
@@ -692,7 +704,7 @@ def test(ec = None):
         pdr.elevation_cube = ec.copy()
         pdr.elevation = ec[0].copy()
 
-    calc_trm(pdr, 0.15, 4, trm_k = 5.0)
+    calc_trm(pdr=pdr, discount=0.15, horizon=4, trm_k=5.0)
     trm_profit = pdr.calc_profit(MHW, 5.0, elevation_cube, False)
     wl_profit = pdr.calc_profit(MW, 1.0, elevation_cube, False)
 
@@ -803,20 +815,22 @@ def batch(force = False, trm_k = 5.0):
     pickle.dump(pdr.plots, open(os.path.join('batch', 'plots.pickle'), 'wb'))
     # trm_profit = pdr.calc_profit(MHW, 5.0, elevation_cube, False)
     # wl_profit = pdr.calc_profit(MW, 1.0, elevation_cube, False)
-    for horizon in range(3,7):
-        calc_trm(pdr, 0.15, horizon, trm_k = trm_k)
+    for utility in ['linear', 'log', 'loss averse']:
+        calc_trm(pdr, 0.15, horizon=5, trm_k = trm_k, utility_type=utility)
+    # for horizon in range(3,7):
+    #     calc_trm(pdr, 0.15, horizon, trm_k = trm_k)
 
-        a = auction(pdr.households)
-        v = election(pdr.households)
-        ares = a.auction()
-        vres = v.vote()
-        vres_list.append(vres)
-        ares_list.append(ares)
-        print("Vote: winner = ", vres[0], " min utility = ", min(vres[1].values()), ", ", v.count_unhappy(vres[0]), " unhappy households")
-        print("Auction: winner = ", ares[0], " min utility = ", min(ares[1].values()), ", ", a.count_unhappy(ares[0]), " unhappy households")
+    #     a = auction(pdr.households)
+    #     v = election(pdr.households)
+    #     ares = a.auction()
+    #     vres = v.vote()
+    #     vres_list.append(vres)
+    #     ares_list.append(ares)
+    #     print("Vote: winner = ", vres[0], " min utility = ", min(vres[1].values()), ", ", v.count_unhappy(vres[0]), " unhappy households")
+    #     print("Auction: winner = ", ares[0], " min utility = ", min(ares[1].values()), ", ", a.count_unhappy(ares[0]), " unhappy households")
 
-#%% Run program
 runit()
-save_images(folder = "figures", euc = euc, ec = elevation_cube, wl_profit = wl_profit, trm_profit = trm_profit, note = None)
+batch()
+#save_images(folder = "figures", euc = euc, ec = elevation_cube, wl_profit = wl_profit, trm_profit = trm_profit, note = None)
 
 # %%
