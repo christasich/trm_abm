@@ -605,7 +605,7 @@ def test(ec = None):
     slr = 0
 
     tides = make_tides(run_length, dt, slr)
-    tides = tides['pressure'] + 1.0
+    tides = tides['pressure'] + 0.5
 
     # Calculate Mean High Water
     pressure = tides.values
@@ -627,7 +627,7 @@ def test(ec = None):
     t = 10 # in years
     gs = 0.03 # grain size in m
     ws = ((gs/1000)**2*1650*9.8)/0.018 # settling velocity calculated using Stoke's Law
-    rho = 1400 # dry bulk density in kg/m^2
+    rho = 1200 # dry bulk density in kg/m^2
     dP = 0 # compaction
     dO = 0 # organic matter deposition
 
